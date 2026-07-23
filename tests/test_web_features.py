@@ -1,6 +1,6 @@
 import os
 
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 
 from smlgw.config import AppConfig, MeterConfig
 from smlgw.history import HistoryStore

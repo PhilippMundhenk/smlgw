@@ -7,15 +7,19 @@ name = "smlgw"
 version = "1.0.0"
 description = "Smart meter (SML/OBIS) to MQTT gateway with a web configuration UI"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "Philipp Mundhenk", email = "philipp@mundhenk.org" }]
+# Deliberately a pure-Python dependency set: no pydantic-core/uvloop/httptools
+# Rust or C builds, so `pip install` is fast even on an ARMv6 board (Raspberry
+# Pi 1) with only source distributions available. The web layer runs on
+# Starlette (what FastAPI is built on) served by plain uvicorn.
 dependencies = [
     "pyserial>=3.5",
     "paho-mqtt>=2.0",
     "PyYAML>=6.0",
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.29",
+    "starlette>=0.37,<1.0",
+    "uvicorn>=0.29",
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
     "itsdangerous>=2.1",

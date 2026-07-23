@@ -1,10 +1,14 @@
 # Runtime dependencies (native install without a build step).
 # Preferred: `pip install .` which reads pyproject.toml.
+#
+# This set is intentionally pure-Python (no pydantic-core / uvloop / httptools
+# Rust or C compilation), so it installs quickly on ARMv6 boards such as a
+# Raspberry Pi 1 and works on Python 3.9+.
 pyserial>=3.5
 paho-mqtt>=2.0
 PyYAML>=6.0
-fastapi>=0.110
-uvicorn[standard]>=0.29
+starlette>=0.37,<1.0
+uvicorn>=0.29
 jinja2>=3.1
 python-multipart>=0.0.9
 itsdangerous>=2.1

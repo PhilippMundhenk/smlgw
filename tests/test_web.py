@@ -1,7 +1,7 @@
 import os
 
 import pytest
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 
 from smlgw.config import AppConfig, MeterConfig, PinConfig
 from smlgw.manager import MeterManager

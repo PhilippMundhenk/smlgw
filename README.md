@@ -33,6 +33,9 @@ as the legacy gateway), stores them as **time series**, and ships a
   Wh→kWh conversion — see [Legacy compatibility](#legacy-compatibility)).
 - **Easy deployment**: Docker image on GHCR, `docker compose`, or native
   (systemd). CI on every push; images published automatically.
+- **Runs on tiny hardware.** A deliberately **pure-Python** dependency set
+  (Starlette + plain uvicorn, no pydantic/uvloop/httptools) and **Python 3.9+**,
+  so `pip install` needs no Rust/C compilation even on an ARMv6 Raspberry Pi 1.
 
 ---
 
@@ -77,7 +80,7 @@ serial/optical ─▶ SmlStreamParser ─▶ OBIS values ─┬▶ per-meter map
 | `smlgw/manager.py` | One resilient worker per meter; discovery; history; live reconfig |
 | `smlgw/pin.py` | Optical PIN entry + bruteforce with stream-based unlock detection |
 | `smlgw/auth.py` | PBKDF2 password hashing + session secret |
-| `smlgw/web/` | FastAPI app: dashboard, settings, meter pages, JSON API |
+| `smlgw/web/` | Starlette app: dashboard, settings, meter pages, JSON API |
 | `smlgw/simulator.py` | Synthetic meters (used by `--simulate` and the tests) |
 
 ---
@@ -190,6 +193,27 @@ service user is in `dialout` and `/etc/smlgw` is writable, then
 `sudo systemctl enable --now smlgw`.
 
 Find serial adapters with `ls -l /dev/serial/by-id/` and use those stable paths.
+
+### Raspberry Pi 1 / low-power boards (ARMv6)
+
+smlgw is designed to install cleanly on old, slow boards. The dependency set is
+**pure Python** (no `pydantic-core`/`uvloop`/`httptools` — which have no ARMv6
+wheels and otherwise compile from source for a very long time), and it supports
+**Python 3.9**, so the normal install just works:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install .            # only pure-Python wheels/sdists — no Rust/C toolchain needed
+smlgw run
+```
+
+Tips on constrained hardware:
+
+- If `PyYAML` tries to build its optional C speedups and is slow, install the
+  distro package instead (`sudo pacman -S python-yaml` on Arch ARM) before
+  `pip install`, or `pip install --no-build-isolation`.
+- The Docker image is multi-arch but a native install is lighter than running a
+  container on 512 MB of RAM.
 
 ---
 
