@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}smlgw — {{ meter.name }}{% endblock %}
+{% block headerright %}<a href="/settings">← all meters</a>{% endblock %}
+{% block content %}
+<div class="panel">
+  <h2>{{ meter.name }} <span class="pill">{{ meter.id }}</span></h2>
+  <div class="grid" style="max-width:640px">
+    <label>Serial port</label><input id="m-port" value="{{ meter.port }}">
+    <label>Baud rate</label><input id="m-baud" type="number" value="{{ meter.baudrate }}">
+    <label>Name</label><input id="m-name" value="{{ meter.name }}">
+    <label>Enabled</label><input id="m-enabled" type="checkbox" {% if meter.enabled %}checked{% endif %} style="width:auto">
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button id="save-meter">Save settings</button>
+    <button class="danger" id="del-meter">Delete meter</button>
+    <span id="meter-msg" class="muted"></span>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Detected values <span id="state-badge" class="badge stopped">…</span></h2>
+  <p class="muted" id="no-data-hint" style="display:none">
+    No data detected yet. If this meter is locked behind a PIN, use the PIN tools below.
+  </p>
+  <table id="values">
+    <thead>
+      <tr><th>OBIS</th><th>Description</th><th class="right">Value</th><th>Unit</th><th>MQTT topic</th><th class="right">Send</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <div class="row" style="margin-top:12px">
+    <button id="save-maps">Save MQTT mappings</button>
+    <span id="maps-msg" class="muted"></span>
+  </div>
+</div>
+
+<div class="panel" id="pin-panel">
+  <h2>PIN tools</h2>
+  <p class="muted">
+    Meters that hide their registers behind a 4-digit optical PIN can be unlocked here.
+    Sending pulses over the IR port takes time (seconds per digit).
+  </p>
+  <div class="row">
+    <input id="pin-value" placeholder="1234" inputmode="numeric" pattern="\d*" style="width:120px">
+    <button id="send-pin">Send PIN</button>
+    <span class="muted">or</span>
+    <label>length</label><input id="bf-len" type="number" value="4" style="width:70px">
+    <label>from</label><input id="bf-start" type="number" value="0" style="width:90px">
+    <label>to</label><input id="bf-end" type="number" placeholder="9999" style="width:90px">
+    <button class="secondary" id="start-bf">Bruteforce PIN</button>
+    <button class="danger" id="cancel-bf" disabled>Cancel</button>
+  </div>
+  <div id="pin-status" style="margin-top:14px; display:none">
+    <div class="row" style="justify-content:space-between">
+      <span id="pin-label" class="mono"></span>
+      <span id="pin-pct" class="muted"></span>
+    </div>
+    <div class="progress" style="margin-top:6px"><div id="pin-bar"></div></div>
+  </div>
+  <div id="pin-msg"></div>
+</div>
+
+<script>
+const METER = {{ meter.id | tojson }};
+async function api(method, url, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+}
+const $ = (id) => document.getElementById(id);
+
+$('save-meter').onclick = async () => {
+  try {
+    await api('PUT', `/api/meters/${METER}`, {
+      name: $('m-name').value, port: $('m-port').value,
+      baudrate: parseInt($('m-baud').value) || 9600, enabled: $('m-enabled').checked,
+    });
+    $('meter-msg').textContent = 'Saved.';
+  } catch (e) { $('meter-msg').textContent = e.message; }
+};
+$('del-meter').onclick = async () => {
+  if (!confirm('Delete this meter?')) return;
+  await api('DELETE', `/api/meters/${METER}`);
+  location.href = '/';
+};
+
+let suggestBase = 'power/' + METER + '/';
+function suggestTopic(code) {
+  const map = { '1.8.0': 'total', '1.8.1': 'ht', '1.8.2': 'nt', '2.8.0': 'export',
+                '16.7.0': 'current', '32.7.0': 'voltage' };
+  const m = code.match(/:(\d+\.\d+\.\d+)\*/);
+  const key = m && map[m[1]] ? map[m[1]] : (m ? m[1].replace(/\./g, '_') : code);
+  return suggestBase + key;
+}
+
+async function loadValues() {
+  const data = await api('GET', `/api/meters/${METER}/discovered`);
+  const badge = $('state-badge');
+  badge.className = 'badge ' + data.state;
+  badge.textContent = data.state;
+  $('no-data-hint').style.display = data.has_data ? 'none' : 'block';
+  const tbody = document.querySelector('#values tbody');
+  const scrollKeep = {};
+  tbody.querySelectorAll('tr').forEach(tr => {
+    scrollKeep[tr.dataset.code] = {
+      topic: tr.querySelector('.topic').value,
+      enabled: tr.querySelector('.enabled').checked,
+    };
+  });
+  tbody.innerHTML = '';
+  if (!data.values.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">No values detected yet.</td></tr>';
+    return;
+  }
+  for (const v of data.values) {
+    const prev = scrollKeep[v.code];
+    const topic = prev ? prev.topic : (v.mapped_topic || suggestTopic(v.code));
+    const enabled = prev ? prev.enabled : (v.mapped_topic ? v.mapped_enabled : false);
+    const tr = document.createElement('tr');
+    tr.dataset.code = v.code;
+    // Build cells with the DOM so meter-supplied strings and user topics are
+    // never interpreted as HTML (no innerHTML interpolation).
+    const cell = (cls, text) => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; return td; };
+    tr.appendChild(cell('mono', v.code));
+    tr.appendChild(cell('muted', v.name === v.code ? '' : v.name));
+    tr.appendChild(cell('right mono', v.value));
+    tr.appendChild(cell('', v.unit || ''));
+    const topicTd = document.createElement('td');
+    const topicInput = document.createElement('input');
+    topicInput.className = 'topic'; topicInput.style.width = '100%'; topicInput.value = topic;
+    topicTd.appendChild(topicInput); tr.appendChild(topicTd);
+    const enTd = document.createElement('td'); enTd.className = 'right';
+    const enInput = document.createElement('input');
+    enInput.type = 'checkbox'; enInput.className = 'enabled'; enInput.checked = enabled;
+    enTd.appendChild(enInput); tr.appendChild(enTd);
+    tbody.appendChild(tr);
+  }
+}
+
+$('save-maps').onclick = async () => {
+  const rows = document.querySelectorAll('#values tbody tr[data-code]');
+  const mappings = [];
+  rows.forEach(tr => {
+    const topic = tr.querySelector('.topic').value.trim();
+    if (topic) mappings.push({ obis: tr.dataset.code, topic, enabled: tr.querySelector('.enabled').checked });
+  });
+  try {
+    const r = await api('PUT', `/api/meters/${METER}/mappings`, { mappings });
+    $('maps-msg').textContent = `Saved ${r.count} mapping(s).`;
+  } catch (e) { $('maps-msg').textContent = e.message; }
+};
+
+// ---- PIN tools ----
+let pinPoll = null;
+function renderPin(p) {
+  const box = $('pin-status');
+  if (!p) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  $('pin-label').textContent = p.current ? `trying ${p.current}` : (p.found ? `PIN ${p.found}` : '');
+  $('pin-pct').textContent = `${p.tried}/${p.total} (${p.percent}%)`;
+  $('pin-bar').style.width = p.percent + '%';
+  const msg = $('pin-msg');
+  if (p.found) { msg.className = 'notice ok'; msg.textContent = `✓ Meter unlocked with PIN ${p.found}`; }
+  else if (p.error) { msg.className = 'notice err'; msg.textContent = 'Error: ' + p.error; }
+  else if (p.finished && !p.cancelled) { msg.className = 'notice info'; msg.textContent = 'Finished — PIN not found in range.'; }
+  else if (p.cancelled) { msg.className = 'notice info'; msg.textContent = 'Cancelled.'; }
+  else { msg.className = ''; msg.textContent = ''; }
+  $('cancel-bf').disabled = !p.running;
+}
+async function pollPin() {
+  try {
+    const s = await api('GET', `/api/meters/${METER}/pin`);
+    renderPin(s.progress);
+    if (s.progress && s.progress.finished) { clearInterval(pinPoll); pinPoll = null; loadValues(); }
+  } catch (e) {}
+}
+function startPolling() { if (!pinPoll) pinPoll = setInterval(pollPin, 800); }
+
+$('send-pin').onclick = async () => {
+  const pin = $('pin-value').value.trim();
+  if (!/^\d+$/.test(pin)) { $('pin-msg').className='notice err'; $('pin-msg').textContent='Enter digits only.'; return; }
+  try { await api('POST', `/api/meters/${METER}/pin`, { pin }); startPolling(); }
+  catch (e) { $('pin-msg').className='notice err'; $('pin-msg').textContent = e.message; }
+};
+$('start-bf').onclick = async () => {
+  const body = { length: parseInt($('bf-len').value) || 4, start: parseInt($('bf-start').value) || 0 };
+  const end = $('bf-end').value.trim(); if (end) body.end = parseInt(end);
+  try { await api('POST', `/api/meters/${METER}/bruteforce`, body); startPolling(); }
+  catch (e) { $('pin-msg').className='notice err'; $('pin-msg').textContent = e.message; }
+};
+$('cancel-bf').onclick = async () => { await api('DELETE', `/api/meters/${METER}/pin`); };
+
+loadValues();
+setInterval(loadValues, 4000);
+pollPin();
+</script>
+{% endblock %}

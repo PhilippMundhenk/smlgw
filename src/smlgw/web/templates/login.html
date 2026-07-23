@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>smlgw — sign in</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main style="max-width:360px;margin-top:12vh">
+    <div class="panel">
+      <h2>smlgw</h2>
+      <p class="muted">Enter the password to access the dashboard.</p>
+      {% if error %}<div class="notice err">{{ error }}</div>{% endif %}
+      <form method="post" action="/api/login">
+        <input type="password" name="password" placeholder="Password" autofocus
+               style="width:100%;margin-bottom:12px" required>
+        <button type="submit" style="width:100%">Sign in</button>
+      </form>
+    </div>
+  </main>
+</body>
+</html>

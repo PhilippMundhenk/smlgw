@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "mqtt": "^4.2.8",
+    "smartmeter-obis": "^2.3.0"
+  }
+}

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}smlgw — meters{% endblock %}
+{% block headerright %}MQTT: <span class="mono">{{ mqtt.host }}:{{ mqtt.port }}</span>{% endblock %}
+{% block content %}
+<div class="panel">
+  <h2>Meters</h2>
+  <table id="meters">
+    <thead>
+      <tr><th>Name</th><th>Port</th><th>State</th><th class="right">Values</th><th class="right">Server ID</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for m in status %}
+      <tr data-id="{{ m.id }}">
+        <td><a href="/meter/{{ m.id }}">{{ m.name }}</a></td>
+        <td class="mono">{{ m.port or "—" }}</td>
+        <td><span class="badge {{ m.state }}">{{ m.state }}</span></td>
+        <td class="right count">{{ m.discovered_count }}</td>
+        <td class="right mono muted sid">{{ m.server_id or "—" }}</td>
+        <td class="right"><a href="/meter/{{ m.id }}">configure →</a></td>
+      </tr>
+      {% endfor %}
+      {% if not status %}
+      <tr><td colspan="6" class="muted">No meters configured yet. Add one below.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <h2>Add a meter</h2>
+  <div class="grid" style="max-width:640px">
+    <label for="f-id">ID</label>
+    <input id="f-id" placeholder="e.g. heating (used in topics)">
+    <label for="f-name">Name</label>
+    <input id="f-name" placeholder="Display name">
+    <label for="f-port">Serial port</label>
+    <input id="f-port" placeholder="/dev/ttyUSB0 or COM3">
+    <label for="f-baud">Baud rate</label>
+    <input id="f-baud" type="number" value="9600">
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button id="add">Add meter</button>
+    <span id="add-msg" class="muted"></span>
+  </div>
+</div>
+
+<script>
+async function api(method, url, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+}
+
+document.getElementById('add').onclick = async () => {
+  const id = document.getElementById('f-id').value.trim();
+  const msg = document.getElementById('add-msg');
+  if (!id) { msg.textContent = 'ID is required'; return; }
+  try {
+    await api('POST', '/api/meters', {
+      id,
+      name: document.getElementById('f-name').value.trim(),
+      port: document.getElementById('f-port').value.trim(),
+      baudrate: parseInt(document.getElementById('f-baud').value) || 9600,
+    });
+    location.href = '/meter/' + encodeURIComponent(id);
+  } catch (e) { msg.textContent = e.message; }
+};
+
+async function refresh() {
+  try {
+    const { meters } = await api('GET', '/api/status');
+    for (const m of meters) {
+      const row = document.querySelector(`tr[data-id="${CSS.escape(m.id)}"]`);
+      if (!row) continue;
+      const badge = row.querySelector('.badge');
+      badge.className = 'badge ' + m.state;
+      badge.textContent = m.state;
+      row.querySelector('.count').textContent = m.discovered_count;
+      row.querySelector('.sid').textContent = m.server_id || '—';
+    }
+  } catch (e) { /* ignore transient errors */ }
+}
+setInterval(refresh, 3000);
+</script>
+{% endblock %}

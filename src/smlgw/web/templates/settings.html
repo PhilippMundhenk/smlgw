@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}smlgw — settings{% endblock %}
+{% block content %}
+
+<div class="panel">
+  <h2>Meters</h2>
+  <table id="meters">
+    <thead><tr><th>Name</th><th>Port</th><th>State</th><th class="right">Values</th><th></th></tr></thead>
+    <tbody>
+      {% for m in status %}
+      <tr data-id="{{ m.id }}">
+        <td><a href="/meter/{{ m.id }}">{{ m.name }}</a></td>
+        <td class="mono">{{ m.port or "—" }}</td>
+        <td><span class="badge {{ m.state }}">{{ m.state }}</span></td>
+        <td class="right count">{{ m.discovered_count }}</td>
+        <td class="right"><a href="/meter/{{ m.id }}">configure →</a></td>
+      </tr>
+      {% endfor %}
+      {% if not status %}<tr><td colspan="5" class="muted">No meters yet.</td></tr>{% endif %}
+    </tbody>
+  </table>
+  <div class="grid" style="max-width:560px;margin-top:14px">
+    <label>ID</label><input id="f-id" placeholder="e.g. heating">
+    <label>Name</label><input id="f-name" placeholder="Display name">
+    <label>Serial port</label><input id="f-port" placeholder="/dev/ttyUSB0 or COM3">
+    <label>Baud rate</label><input id="f-baud" type="number" value="9600">
+  </div>
+  <div class="row" style="margin-top:12px"><button id="add">Add meter</button><span id="add-msg" class="muted"></span></div>
+</div>
+
+<div class="panel">
+  <h2>MQTT broker</h2>
+  <div class="grid" style="max-width:560px">
+    <label>Host</label><input id="mq-host" value="{{ mqtt.host }}">
+    <label>Port</label><input id="mq-port" type="number" value="{{ mqtt.port }}">
+    <label>Username</label><input id="mq-user" value="{{ mqtt.username or '' }}">
+    <label>Password</label><input id="mq-pass" type="password" placeholder="(unchanged)">
+    <label>Client ID</label><input id="mq-cid" value="{{ mqtt.client_id }}">
+    <label>TLS</label><input id="mq-tls" type="checkbox" {% if mqtt.tls %}checked{% endif %} style="width:auto">
+    <label>Retain</label><input id="mq-retain" type="checkbox" {% if mqtt.retain %}checked{% endif %} style="width:auto">
+  </div>
+  <div class="row" style="margin-top:12px"><button id="save-mqtt">Save MQTT</button><span id="mqtt-msg" class="muted"></span></div>
+</div>
+
+<div class="panel">
+  <h2>History &amp; retention</h2>
+  <p class="muted">Read values are stored so the dashboard can plot them over time.</p>
+  <div class="grid" style="max-width:560px">
+    <label>Record history</label><input id="h-enabled" type="checkbox" {% if history.enabled %}checked{% endif %} style="width:auto">
+    <label>Keep for (hours)</label><input id="h-retention" type="number" step="0.5" value="{{ history.retention_hours }}">
+    <label>Min sample gap (s)</label><input id="h-interval" type="number" step="1" value="{{ history.sample_interval }}">
+    <label>Stored samples</label><span id="h-count" class="mono muted">…</span>
+  </div>
+  <div class="row" style="margin-top:12px"><button id="save-history">Save history settings</button><span id="hist-msg" class="muted"></span></div>
+</div>
+
+<div class="panel">
+  <h2>UI password</h2>
+  <p class="muted" id="auth-state">
+    {% if auth.enabled %}The UI is currently password protected.{% else %}The UI is currently open (no password).{% endif %}
+  </p>
+  <div class="row">
+    <input id="pw" type="password" placeholder="New password" style="width:220px">
+    <button id="set-pw">{% if auth.enabled %}Change password{% else %}Enable password{% endif %}</button>
+    {% if auth.enabled %}<button class="danger" id="clear-pw">Disable password</button>
+    <a href="/logout" class="chip-btn" style="margin-left:8px">Log out</a>{% endif %}
+    <span id="pw-msg" class="muted"></span>
+  </div>
+</div>
+
+<script>
+async function api(method, url, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+}
+const $ = (id) => document.getElementById(id);
+
+$('add').onclick = async () => {
+  const id = $('f-id').value.trim();
+  if (!id) { $('add-msg').textContent = 'ID required'; return; }
+  try {
+    await api('POST', '/api/meters', { id, name: $('f-name').value.trim(), port: $('f-port').value.trim(), baudrate: parseInt($('f-baud').value) || 9600 });
+    location.href = '/meter/' + encodeURIComponent(id);
+  } catch (e) { $('add-msg').textContent = e.message; }
+};
+
+$('save-mqtt').onclick = async () => {
+  const body = { host: $('mq-host').value, port: parseInt($('mq-port').value) || 1883,
+    username: $('mq-user').value || null, client_id: $('mq-cid').value,
+    tls: $('mq-tls').checked, retain: $('mq-retain').checked };
+  if ($('mq-pass').value) body.password = $('mq-pass').value;
+  try { await api('PUT', '/api/settings/mqtt', body); $('mqtt-msg').textContent = 'Saved & reconnected.'; }
+  catch (e) { $('mqtt-msg').textContent = e.message; }
+};
+
+$('save-history').onclick = async () => {
+  try {
+    await api('PUT', '/api/settings/history', { enabled: $('h-enabled').checked,
+      retention_hours: parseFloat($('h-retention').value) || 168, sample_interval: parseFloat($('h-interval').value) || 10 });
+    $('hist-msg').textContent = 'Saved.'; loadSettings();
+  } catch (e) { $('hist-msg').textContent = e.message; }
+};
+
+$('set-pw').onclick = async () => {
+  const pw = $('pw').value;
+  if (!pw) { $('pw-msg').textContent = 'Enter a password'; return; }
+  try { await api('POST', '/api/settings/password', { password: pw }); location.reload(); }
+  catch (e) { $('pw-msg').textContent = e.message; }
+};
+const clearBtn = $('clear-pw');
+if (clearBtn) clearBtn.onclick = async () => {
+  if (!confirm('Disable password protection?')) return;
+  try { await api('DELETE', '/api/settings/password'); location.reload(); }
+  catch (e) { $('pw-msg').textContent = e.message; }
+};
+
+async function loadSettings() {
+  try { const s = await api('GET', '/api/settings'); $('h-count').textContent = s.history.samples.toLocaleString(); }
+  catch (e) {}
+}
+loadSettings();
+</script>
+{% endblock %}

@@ -1,0 +1,26 @@
+services:
+  smlgw:
+    build: .
+    image: smlgw:latest
+    container_name: smlgw
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/config
+    # Pass through the meter's serial adapters. Adjust to your host devices
+    # (see `smlgw`'s device list in the web UI, or `ls -l /dev/serial/by-id`).
+    devices:
+      - "/dev/ttyUSB0:/dev/ttyUSB0"
+      - "/dev/ttyUSB1:/dev/ttyUSB1"
+    # Alternatively, for stable names use group_add + /dev/serial/by-id mounts.
+    # group_add:
+    #   - dialout
+
+  # Optional local broker for testing; point mqtt.host at "mosquitto".
+  # mosquitto:
+  #   image: eclipse-mosquitto:2
+  #   restart: unless-stopped
+  #   ports: ["1883:1883"]
+  #   volumes:
+  #     - ./mosquitto.conf:/mosquitto/config/mosquitto.conf

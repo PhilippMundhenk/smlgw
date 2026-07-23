@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}smlgw — dashboard{% endblock %}
+{% block headerright %}<a id="add-panel" class="chip-btn">+ Add panel</a>{% endblock %}
+{% block content %}
+<div id="dash" class="dash-grid"></div>
+<div id="empty" class="empty-dash" style="display:none">
+  <p>No panels yet.</p>
+  <button id="add-panel-2">Add your first panel</button>
+  <p class="muted" style="margin-top:8px">Plot any value your meters report over time. Configure meters in
+    <a href="/settings">Settings</a>.</p>
+</div>
+
+<!-- Panel editor -->
+<div class="modal-backdrop" id="editor">
+  <div class="modal">
+    <h2 id="editor-title">Add panel</h2>
+    <div class="grid">
+      <label>Title</label><input id="p-title" placeholder="e.g. House power">
+      <label>Type</label>
+      <select id="p-type">
+        <option value="line">Line chart</option>
+        <option value="stat">Single stat</option>
+        <option value="gauge">Gauge</option>
+      </select>
+      <label>Width</label>
+      <select id="p-span"><option value="1">Half</option><option value="2">Full</option></select>
+      <label>Unit override</label><input id="p-unit" placeholder="(auto from source)">
+      <label class="line-only">Time range</label>
+      <select id="p-range" class="line-only">
+        <option value="900">Last 15 min</option>
+        <option value="3600" selected>Last hour</option>
+        <option value="21600">Last 6 hours</option>
+        <option value="86400">Last 24 hours</option>
+        <option value="604800">Last 7 days</option>
+      </select>
+      <label class="gauge-only">Gauge min</label><input id="p-gmin" class="gauge-only" type="number" value="0">
+      <label class="gauge-only">Gauge max</label><input id="p-gmax" class="gauge-only" type="number" value="100">
+    </div>
+    <h3 style="margin:16px 0 8px;font-size:13px">Sources</h3>
+    <div id="series-list"></div>
+    <button class="secondary" id="add-series" style="margin-top:6px">+ Add source</button>
+    <div class="row" style="margin-top:18px;justify-content:flex-end">
+      <button class="secondary" id="editor-cancel">Cancel</button>
+      <button id="editor-save">Save panel</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/charts.js"></script>
+<script>
+async function api(method, url, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+}
+const $ = (id) => document.getElementById(id);
+const PALETTE = SmlCharts.PALETTE;
+
+let panels = [];
+let sources = [];
+let editIndex = -1;
+
+async function load() {
+  [panels, sources] = await Promise.all([
+    api('GET', '/api/dashboard').then((d) => d.panels),
+    api('GET', '/api/sources').then((d) => d.sources).catch(() => []),
+  ]);
+  render();
+}
+
+function sourceLabel(s) {
+  const src = sources.find((x) => x.meter === s.meter && x.obis === s.obis);
+  const name = src && src.name && src.name !== s.obis ? src.name : s.obis;
+  return s.label || `${s.meter} · ${name}`;
+}
+
+function render() {
+  const dash = $('dash');
+  dash.innerHTML = '';
+  $('empty').style.display = panels.length ? 'none' : 'block';
+  panels.forEach((panel, idx) => {
+    const card = document.createElement('div');
+    card.className = 'panel-card' + (panel.span === 2 ? ' span-2' : '');
+    const head = document.createElement('div');
+    head.className = 'panel-head';
+    const h3 = document.createElement('h3'); h3.textContent = panel.title || '(untitled)';
+    const tools = document.createElement('div'); tools.className = 'tools';
+    const edit = document.createElement('a'); edit.textContent = 'edit'; edit.onclick = () => openEditor(idx);
+    const del = document.createElement('a'); del.textContent = 'delete';
+    del.onclick = async () => { if (confirm('Delete panel?')) { panels.splice(idx, 1); await save(); } };
+    tools.append(edit, del);
+    head.append(h3, tools);
+    const body = document.createElement('div'); body.className = 'panel-body';
+    card.append(head, body);
+    dash.appendChild(card);
+    drawPanel(panel, body);
+  });
+}
+
+async function drawPanel(panel, body) {
+  if (panel.type === 'stat' || panel.type === 'gauge') {
+    const s = panel.series[0];
+    if (!s) { body.innerHTML = '<span class="muted">no source</span>'; return; }
+    const data = await api('GET', `/api/history?meter=${encodeURIComponent(s.meter)}&obis=${encodeURIComponent(s.obis)}&since=3600&points=2`).catch(() => ({}));
+    const val = data.latest;
+    const src = sources.find((x) => x.meter === s.meter && x.obis === s.obis);
+    const unit = panel.unit || (src ? src.unit : '');
+    if (panel.type === 'stat') {
+      body.innerHTML = '';
+      const div = document.createElement('div');
+      div.innerHTML = `<div class="stat-value">${val == null ? '—' : SmlCharts.fmtNum(val)}<span class="stat-unit">${unit || ''}</span></div>`;
+      const sub = document.createElement('div'); sub.className = 'stat-sub'; sub.textContent = sourceLabel(s);
+      div.appendChild(sub); body.appendChild(div);
+    } else {
+      body.innerHTML = '<canvas></canvas>';
+      SmlCharts.gauge(body.querySelector('canvas'), val || 0, panel.gauge_min, panel.gauge_max, { unit });
+    }
+    return;
+  }
+  // line
+  body.innerHTML = '<canvas></canvas>';
+  const canvas = body.querySelector('canvas');
+  const series = await Promise.all(panel.series.map(async (s, i) => {
+    const data = await api('GET', `/api/history?meter=${encodeURIComponent(s.meter)}&obis=${encodeURIComponent(s.obis)}&since=${panel.time_range}&points=400`).catch(() => ({ points: [] }));
+    return { label: sourceLabel(s), color: s.color || PALETTE[i % PALETTE.length], points: data.points || [] };
+  }));
+  SmlCharts.lineChart(canvas, series, {});
+  if (series.length > 1) {
+    const legend = document.createElement('div'); legend.className = 'legend';
+    series.forEach((s) => {
+      const span = document.createElement('span');
+      span.innerHTML = `<i style="background:${s.color}"></i>`;
+      span.append(document.createTextNode(s.label));
+      legend.appendChild(span);
+    });
+    body.appendChild(legend);
+  }
+}
+
+// ---- editor ----
+function openEditor(idx) {
+  editIndex = idx;
+  const p = idx >= 0 ? panels[idx] : { title: '', type: 'line', span: 1, unit: '', time_range: 3600, gauge_min: 0, gauge_max: 100, series: [] };
+  $('editor-title').textContent = idx >= 0 ? 'Edit panel' : 'Add panel';
+  $('p-title').value = p.title; $('p-type').value = p.type; $('p-span').value = p.span;
+  $('p-unit').value = p.unit; $('p-range').value = p.time_range;
+  $('p-gmin').value = p.gauge_min; $('p-gmax').value = p.gauge_max;
+  renderSeriesRows(p.series.length ? p.series : [{ meter: '', obis: '' }]);
+  updateTypeVisibility();
+  $('editor').classList.add('open');
+}
+function updateTypeVisibility() {
+  const t = $('p-type').value;
+  document.querySelectorAll('.line-only').forEach((e) => e.style.display = t === 'line' ? '' : 'none');
+  document.querySelectorAll('.gauge-only').forEach((e) => e.style.display = t === 'gauge' ? '' : 'none');
+}
+$('p-type').onchange = updateTypeVisibility;
+
+function renderSeriesRows(seriesArr) {
+  const list = $('series-list'); list.innerHTML = '';
+  seriesArr.forEach((s) => addSeriesRow(s));
+}
+function addSeriesRow(s) {
+  s = s || { meter: '', obis: '' };
+  const row = document.createElement('div'); row.className = 'series-row';
+  const sel = document.createElement('select');
+  sources.forEach((src) => {
+    const opt = document.createElement('option');
+    opt.value = src.meter + '|' + src.obis;
+    opt.textContent = `${src.meter_name} · ${src.name}`;
+    sel.appendChild(opt);
+  });
+  if (!sources.length) {
+    const opt = document.createElement('option'); opt.textContent = 'no sources detected yet'; sel.appendChild(opt);
+  }
+  sel.value = s.meter + '|' + s.obis;
+  const label = document.createElement('input'); label.placeholder = 'label (optional)'; label.value = s.label || '';
+  label.style.width = '130px';
+  const rm = document.createElement('button'); rm.className = 'secondary'; rm.textContent = '×';
+  rm.onclick = () => row.remove();
+  row.append(sel, label, rm);
+  $('series-list').appendChild(row);
+}
+$('add-series').onclick = () => addSeriesRow();
+
+$('editor-cancel').onclick = () => $('editor').classList.remove('open');
+$('editor-save').onclick = async () => {
+  const series = [];
+  document.querySelectorAll('#series-list .series-row').forEach((row) => {
+    const sel = row.querySelector('select'); const label = row.querySelector('input');
+    if (!sel.value || !sel.value.includes('|')) return;
+    const [meter, obis] = sel.value.split('|');
+    series.push({ meter, obis, label: label.value, color: '' });
+  });
+  const panel = {
+    id: editIndex >= 0 ? panels[editIndex].id : 'p' + Math.random().toString(36).slice(2, 9),
+    title: $('p-title').value, type: $('p-type').value, span: parseInt($('p-span').value),
+    unit: $('p-unit').value, time_range: parseFloat($('p-range').value),
+    gauge_min: parseFloat($('p-gmin').value), gauge_max: parseFloat($('p-gmax').value),
+    series,
+  };
+  if (editIndex >= 0) panels[editIndex] = panel; else panels.push(panel);
+  $('editor').classList.remove('open');
+  await save();
+};
+
+async function save() {
+  await api('PUT', '/api/dashboard', { panels });
+  render();
+}
+
+$('add-panel').onclick = () => openEditor(-1);
+$('add-panel-2').onclick = () => openEditor(-1);
+$('editor').onclick = (e) => { if (e.target === $('editor')) $('editor').classList.remove('open'); };
+
+load();
+setInterval(() => { if (!$('editor').classList.contains('open')) render(); }, 5000);
+window.addEventListener('resize', () => { if (!$('editor').classList.contains('open')) render(); });
+</script>
+{% endblock %}

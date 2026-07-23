@@ -1,0 +1,25 @@
+[Unit]
+Description=smlgw - smart meter to MQTT gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust user/paths to your install. The user must be in the "dialout" group
+# to access /dev/ttyUSB* serial ports.
+User=smlgw
+Group=dialout
+WorkingDirectory=/opt/smlgw
+Environment=SMLGW_CONFIG=/etc/smlgw/config.yaml
+ExecStart=/opt/smlgw/.venv/bin/smlgw run --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+# The web UI and PIN discovery persist config back to disk, so the config
+# directory must be writable by this user. Create it once with:
+#   sudo install -d -o smlgw -g smlgw /etc/smlgw
+# and allow systemd's sandbox to write there:
+ReadWritePaths=/etc/smlgw
+# The history database lives next to the config by default; keep it writable too.
+
+[Install]
+WantedBy=multi-user.target
