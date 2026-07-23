@@ -5,21 +5,20 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Adjust user/paths to your install. The user must be in the "dialout" group
-# to access /dev/ttyUSB* serial ports.
-User=smlgw
-Group=dialout
-WorkingDirectory=/opt/smlgw
-Environment=SMLGW_CONFIG=/etc/smlgw/config.yaml
-ExecStart=/opt/smlgw/.venv/bin/smlgw run --host 0.0.0.0 --port 8000
+# Adjust User/paths to your install. This matches a git clone in the user's
+# home (e.g. /home/alarm/smlgw) with a virtualenv in .venv there.
+User=alarm
+Group=alarm
+WorkingDirectory=/home/alarm/smlgw
+ExecStart=/home/alarm/smlgw/.venv/bin/smlgw run --config /home/alarm/smlgw/config.yaml --host 0.0.0.0 --port 8000
 Restart=on-failure
 RestartSec=5
-# The web UI and PIN discovery persist config back to disk, so the config
-# directory must be writable by this user. Create it once with:
-#   sudo install -d -o smlgw -g smlgw /etc/smlgw
-# and allow systemd's sandbox to write there:
-ReadWritePaths=/etc/smlgw
-# The history database lives next to the config by default; keep it writable too.
+
+# Serial access: add the group that owns your meter's device. Check with
+#   ls -l /dev/ttyUSB0
+# On Arch Linux ARM this is usually "uucp"; on Debian/Raspberry Pi OS "dialout".
+# Uncomment and set it once you have a meter connected:
+#SupplementaryGroups=uucp
 
 [Install]
 WantedBy=multi-user.target
