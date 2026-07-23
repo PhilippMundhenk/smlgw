@@ -18,8 +18,9 @@ import threading
 from dataclasses import replace
 from pathlib import Path
 
+import yaml
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -473,6 +474,44 @@ def create_app(manager: MeterManager, config_path: str) -> FastAPI:
         ]
         mutate(lambda cfg: replace(cfg, dashboard=DashboardConfig(panels=panels)))
         return {"ok": True, "count": len(panels)}
+
+    # ---- backup / restore ------------------------------------------- #
+    @app.get("/api/config/export")
+    def api_export_config():
+        """Download the full configuration as a YAML backup."""
+        payload = yaml.safe_dump(manager.config.to_dict(), sort_keys=False, allow_unicode=True)
+        return Response(
+            content=payload,
+            media_type="application/x-yaml",
+            headers={"Content-Disposition": 'attachment; filename="smlgw-config.yaml"'},
+        )
+
+    @app.post("/api/config/import")
+    async def api_import_config(request: Request):
+        """Replace the whole configuration from an uploaded YAML/JSON backup."""
+        raw = await request.body()
+        try:
+            data = yaml.safe_load(raw.decode("utf-8")) or {}
+            if not isinstance(data, dict):
+                raise ValueError("configuration must be a mapping")
+            new_config = AppConfig.from_dict(data)
+        except Exception as exc:  # noqa: BLE001 - surfaced to the user
+            raise HTTPException(status_code=400, detail=f"invalid configuration: {exc}")
+        # Keep the running session-signing secret so importing does not lock out
+        # the current admin (SessionMiddleware's key is fixed at startup).
+        current_secret = manager.config.auth.secret
+        new_config = replace(
+            new_config,
+            auth=replace(new_config.auth, secret=current_secret or new_config.auth.secret or generate_secret()),
+        )
+        mutate(lambda _cfg: new_config)
+        manager.reconfigure_mqtt()
+        if manager.history is not None:
+            manager.history.update_settings(
+                retention_hours=new_config.history.retention_hours,
+                sample_interval=new_config.history.sample_interval,
+            )
+        return {"ok": True, "meters": len(new_config.meters), "panels": len(new_config.dashboard.panels)}
 
     @app.get("/api/obis/{code:path}")
     def api_obis_name(code: str):

@@ -34,8 +34,6 @@ as the legacy gateway), stores them as **time series**, and ships a
 - **Easy deployment**: Docker image on GHCR, `docker compose`, or native
   (systemd). CI on every push; images published automatically.
 
-The original files are preserved under [`legacy/`](legacy/) for reference.
-
 ---
 
 ## Quick start (no hardware)
@@ -106,6 +104,8 @@ emitted.
 - **UI password** — enable/disable a password. When enabled, all pages and API
   routes require a login (`/login`); the password is stored only as a salted
   PBKDF2 hash.
+- **Backup & restore** — download the full configuration as a YAML file and
+  restore it later (applied live). Handy for migrating between hosts.
 
 ### Meter page (`/meter/{id}`)
 - **Detected values** — every OBIS code the meter emits, its live value and

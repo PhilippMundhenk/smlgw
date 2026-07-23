@@ -126,6 +126,60 @@ def test_password_protection_flow(tmp_path):
         manager.stop()
 
 
+def test_config_export_and_import(tmp_path):
+    import yaml
+
+    client, manager = make_env(tmp_path)
+    try:
+        # Export the live config as YAML.
+        r = client.get("/api/config/export")
+        assert r.status_code == 200
+        assert "attachment" in r.headers.get("content-disposition", "")
+        data = yaml.safe_load(r.text)
+        assert any(m["id"] == "m" for m in data["meters"])
+
+        # Modify and restore it.
+        data["mqtt"]["host"] = "imported-host"
+        data["meters"].append({"id": "m2", "port": "p2"})
+        res = client.post(
+            "/api/config/import",
+            content=yaml.safe_dump(data),
+            headers={"Content-Type": "application/x-yaml"},
+        )
+        assert res.status_code == 200
+        assert res.json()["meters"] == 2
+        assert manager.config.mqtt.host == "imported-host"
+        assert manager.config.get_meter("m2") is not None
+    finally:
+        manager.stop()
+
+
+def test_config_import_rejects_invalid(tmp_path):
+    client, manager = make_env(tmp_path)
+    try:
+        res = client.post(
+            "/api/config/import", content="not: [valid: yaml", headers={"Content-Type": "application/x-yaml"}
+        )
+        assert res.status_code == 400
+    finally:
+        manager.stop()
+
+
+def test_config_import_preserves_session_secret(tmp_path):
+    import yaml
+
+    client, manager = make_env(tmp_path)
+    try:
+        secret_before = manager.config.auth.secret
+        data = yaml.safe_load(client.get("/api/config/export").text)
+        data["auth"]["secret"] = "some-other-secret"  # should be ignored on import
+        client.post("/api/config/import", content=yaml.safe_dump(data), headers={"Content-Type": "application/x-yaml"})
+        # The running signing secret is kept so the admin isn't logged out.
+        assert manager.config.auth.secret == secret_before
+    finally:
+        manager.stop()
+
+
 def test_disable_password_reopens(tmp_path):
     client, manager = make_env(tmp_path, follow_redirects=False)
     try:

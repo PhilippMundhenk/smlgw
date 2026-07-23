@@ -68,6 +68,19 @@
   </div>
 </div>
 
+<div class="panel">
+  <h2>Backup &amp; restore</h2>
+  <p class="muted">Download all settings (meters, mappings, MQTT, dashboard, history, password)
+    as a YAML file, or restore from a previous backup. The file contains MQTT credentials and
+    the password hash — keep it safe.</p>
+  <div class="row">
+    <button id="download-btn">Download settings</button>
+    <input type="file" id="restore-file" accept=".yaml,.yml,.json" style="display:none">
+    <button class="secondary" id="restore-btn">Restore from file…</button>
+    <span id="backup-msg" class="muted"></span>
+  </div>
+</div>
+
 <script>
 async function api(method, url, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -116,6 +129,23 @@ if (clearBtn) clearBtn.onclick = async () => {
   if (!confirm('Disable password protection?')) return;
   try { await api('DELETE', '/api/settings/password'); location.reload(); }
   catch (e) { $('pw-msg').textContent = e.message; }
+};
+
+$('download-btn').onclick = () => { window.location = '/api/config/export'; };
+$('restore-btn').onclick = () => $('restore-file').click();
+$('restore-file').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!confirm(`Restore settings from "${file.name}"? This replaces the current configuration.`)) { e.target.value = ''; return; }
+  try {
+    const text = await file.text();
+    const r = await fetch('/api/config/import', { method: 'POST', headers: { 'Content-Type': 'application/x-yaml' }, body: text });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    $('backup-msg').textContent = `Restored ${data.meters} meter(s), ${data.panels} panel(s). Reloading…`;
+    setTimeout(() => location.reload(), 900);
+  } catch (err) { $('backup-msg').textContent = err.message; }
+  e.target.value = '';
 };
 
 async function loadSettings() {

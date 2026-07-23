@@ -104,6 +104,27 @@ Disables UI protection and clears the current session.
 
 ---
 
+## Backup & restore
+
+### `GET /api/config/export`
+Download the entire configuration (meters, mappings, MQTT, dashboard, history,
+`pin`, and `auth` including the password hash) as a YAML file
+(`Content-Disposition: attachment; filename="smlgw-config.yaml"`). Treat the
+file as a secret — it contains credentials.
+
+### `POST /api/config/import`
+Replace the whole configuration from a YAML (or JSON) body — the same shape as
+`config.yaml`. Applied to the running gateway immediately (meters restart, MQTT
+reconnects, history retention updates) and persisted. Invalid input returns
+`400`. The running session-signing secret is preserved so the current admin is
+not logged out by the import.
+
+```json
+{"ok": true, "meters": 2, "panels": 1}
+```
+
+---
+
 ## Dashboard
 
 ### `GET /api/dashboard`

@@ -13,7 +13,6 @@ config
 config.yaml
 history.db
 history.db-*
-legacy
 *.md
 !README.md
 pin_log_*.txt
