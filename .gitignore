@@ -6,7 +6,10 @@ venv/
 *.egg-info/
 build/
 dist/
+# Runtime config (secrets/ports are environment-specific) and its history DB.
 config.yaml
 config/
+history.db
+history.db-*
 pin_log_*.txt
 pin_*.txt
