@@ -10,7 +10,7 @@ from one or more smart meters over a serial/optical interface, decodes the
 as the legacy gateway), stores them as **time series**, and ships a
 **Grafana-style web UI** to configure everything and plot history.
 
-<!-- Screenshot placeholder: the dashboard with line + gauge panels -->
+![smlgw dashboard — energy stats and live power charts for two meters](docs/screenshots/dashboard.png)
 
 ## Highlights
 
@@ -110,11 +110,15 @@ emitted.
 - **Backup & restore** — download the full configuration as a YAML file and
   restore it later (applied live). Handy for migrating between hosts.
 
+![Settings page listing two meters in the "reading" state, with the add-meter form](docs/screenshots/settings-meters.png)
+
 ### Meter page (`/meter/{id}`)
 - **Detected values** — every OBIS code the meter emits, its live value and
   unit. Type an MQTT topic beside any value and tick it to publish.
 - **PIN tools** — shown for meters with no data: send a known PIN or bruteforce
   a lost one (see [PIN recovery](#pin-locked-meters)).
+
+![Detected values table mapping OBIS codes to MQTT topics with per-value publish toggles](docs/screenshots/meter-values.png)
 
 ---
 
@@ -239,6 +243,8 @@ press"). On a meter's page, if no data is detected, use **PIN tools**:
   (unlock = the target register starts reporting a non-zero value).
 - **Bruteforce PIN** — sweeps the PIN space, watching the live SML stream.
   Progress is shown and it can be cancelled.
+
+![PIN tools: send a known PIN, or bruteforce a range with a cancel button](docs/screenshots/pin-tools.png)
 
 Headless equivalent of the old `pin.sh`:
 
