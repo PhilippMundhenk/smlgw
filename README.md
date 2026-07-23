@@ -199,19 +199,31 @@ Find serial adapters with `ls -l /dev/serial/by-id/` and use those stable paths.
 smlgw is designed to install cleanly on old, slow boards. The dependency set is
 **pure Python** (no `pydantic-core`/`uvloop`/`httptools` — which have no ARMv6
 wheels and otherwise compile from source for a very long time), and it supports
-**Python 3.9**, so the normal install just works:
+**Python 3.9**.
+
+**Upgrade pip first.** A `python3 -m venv` on an old distro seeds an ancient
+pip whose bundled TOML parser crashes reading modern dependency metadata
+(`IndexError` in `pip/_vendor/toml`). Upgrade it before installing:
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install .            # only pure-Python wheels/sdists — no Rust/C toolchain needed
+pip install --upgrade pip setuptools wheel   # essential on old systems
+pip install .
 smlgw run
 ```
 
-Tips on constrained hardware:
+Tips on constrained hardware (e.g. Arch Linux ARM on a Pi 1):
 
-- If `PyYAML` tries to build its optional C speedups and is slow, install the
-  distro package instead (`sudo pacman -S python-yaml` on Arch ARM) before
-  `pip install`, or `pip install --no-build-isolation`.
+- A couple of transitive deps (`MarkupSafe`, `PyYAML`) have no ARMv6 wheels, so
+  pip fetches their source. Both fall back to pure Python without a C compiler,
+  so they still install — just slower.
+- To skip building them entirely, install the distro packages and let the venv
+  see them:
+  ```bash
+  sudo pacman -S python-yaml python-markupsafe
+  python3 -m venv --system-site-packages .venv
+  . .venv/bin/activate && pip install --upgrade pip && pip install .
+  ```
 - The Docker image is multi-arch but a native install is lighter than running a
   container on 512 MB of RAM.
 
