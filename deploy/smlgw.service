@@ -14,11 +14,10 @@ ExecStart=/home/alarm/smlgw/.venv/bin/smlgw run --config /home/alarm/smlgw/confi
 Restart=on-failure
 RestartSec=5
 
-# Serial access: add the group that owns your meter's device. Check with
-#   ls -l /dev/ttyUSB0
-# On Arch Linux ARM this is usually "uucp"; on Debian/Raspberry Pi OS "dialout".
-# Uncomment and set it once you have a meter connected:
-#SupplementaryGroups=uucp
+# Serial access: the service needs the group that owns the meter's device.
+# Check with:  ls -l /dev/ttyUSB0
+# Arch Linux ARM uses "uucp"; on Debian/Raspberry Pi OS change this to "dialout".
+SupplementaryGroups=uucp
 
 [Install]
 WantedBy=multi-user.target
