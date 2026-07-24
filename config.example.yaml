@@ -60,6 +60,8 @@ meters:
   # Reproduces the exact topics the legacy gateway.js published.
   - id: heating
     name: Heating
+    # Local device, or a network URL for a meter read on another host and
+    # exported via ser2net/socat, e.g. "socket://meter-box.local:5000".
     port: /dev/ttyUSB0
     baudrate: 9600
     enabled: true

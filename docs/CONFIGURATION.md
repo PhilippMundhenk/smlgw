@@ -153,7 +153,7 @@ meters:
 |---|---|---|---|
 | `id` | string | — | Unique id. |
 | `name` | string | = `id` | Display name. |
-| `port` | string | `""` | Serial device path. |
+| `port` | string | `""` | Serial device path (`/dev/ttyUSB0`, `COM3`) **or** a pyserial URL for a networked meter (`socket://host:5000`, `rfc2217://host:5000`). |
 | `baudrate` | int | `9600` | Typically 9600 for SML. |
 | `enabled` | bool | `true` | Disabled meters are not read. |
 | `verify_crc` | bool | `false` | If true, frames failing CRC are dropped. |

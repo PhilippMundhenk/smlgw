@@ -231,6 +231,30 @@ Tips on constrained hardware (e.g. Arch Linux ARM on a Pi 1):
 - The Docker image is multi-arch but a native install is lighter than running a
   container on 512 MB of RAM.
 
+### Reading a remote meter (serial over the network)
+
+The machine reading the meter and the machine running `smlgw` need not be the
+same one. A meter's serial port can be a pyserial URL, so a tiny box next to the
+meter exports the port and `smlgw` runs wherever is convenient:
+
+```yaml
+meters:
+  - id: house
+    port: "socket://meter-box.local:5000"   # or rfc2217://meter-box.local:5000
+```
+
+Serve the port from the box next to the meter with `ser2net`, or a one-liner:
+
+```bash
+# next to the meter — publish /dev/ttyUSB0 on TCP port 5000
+socat TCP-LISTEN:5000,reuseaddr,fork /dev/ttyUSB0,raw,b9600
+```
+
+Use `rfc2217://` (ser2net's `telnet` mode) if you need the baud rate negotiated
+over the link; plain `socket://` is fine for a fixed 9600-baud SML stream. No
+`--device` passthrough is needed in this mode — the container just needs network
+access to the box.
+
 ---
 
 ## PIN-locked meters

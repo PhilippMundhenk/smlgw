@@ -30,7 +30,14 @@ class Transport(Protocol):
 
 
 class SerialTransport:
-    """A :class:`Transport` backed by a hardware serial port via ``pyserial``."""
+    """A :class:`Transport` backed by ``pyserial``.
+
+    ``port`` may be a local device (``/dev/ttyUSB0``, ``COM3``) or a pyserial URL
+    for a meter read on another machine and exported over the network, e.g.
+    ``socket://meter-host:5000`` or ``rfc2217://meter-host:5000`` (as served by
+    ``ser2net``/``socat``). URLs are opened via ``serial_for_url`` so the gateway
+    can run anywhere, not only on the box the IR reader is plugged into.
+    """
 
     def __init__(self, port: str, baudrate: int = 9600, timeout: float = 1.0) -> None:
         self.port = port
@@ -38,19 +45,36 @@ class SerialTransport:
         self.timeout = timeout
         self._serial = None
 
+    @property
+    def is_network(self) -> bool:
+        return "://" in self.port
+
     def open(self) -> None:
         import serial  # imported lazily; only needed for real hardware
 
         if self._serial is not None and self._serial.is_open:
             return
-        self._serial = serial.Serial(
-            port=self.port,
-            baudrate=self.baudrate,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=self.timeout,
-        )
+        if self.is_network:
+            # serial_for_url handles socket://, rfc2217://, loop://, etc. Serial
+            # line params are set before opening (RFC2217 honours them; plain
+            # socket:// ignores them harmlessly).
+            ser = serial.serial_for_url(self.port, do_not_open=True)
+            ser.baudrate = self.baudrate
+            ser.bytesize = serial.EIGHTBITS
+            ser.parity = serial.PARITY_NONE
+            ser.stopbits = serial.STOPBITS_ONE
+            ser.timeout = self.timeout
+            ser.open()
+            self._serial = ser
+        else:
+            self._serial = serial.Serial(
+                port=self.port,
+                baudrate=self.baudrate,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=self.timeout,
+            )
 
     def read(self, size: int) -> bytes:
         if self._serial is None:
