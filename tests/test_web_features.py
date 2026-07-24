@@ -69,6 +69,35 @@ def test_sources_lists_meter_obis(tmp_path):
         manager.stop()
 
 
+def test_unit_options_and_override(tmp_path):
+    cfg = AppConfig(meters=[MeterConfig(id="m", port="p")])
+    client, manager = make_env(tmp_path, config=cfg)
+    try:
+        assert wait_until(lambda: manager.discovered("m"))
+        body = client.get("/api/meters/m/discovered").json()
+        energy = next(v for v in body["values"] if v["code"] == "1-0:1.8.0*255")
+        assert energy["unit"] == "kWh"
+        assert energy["unit_options"] == ["kWh", "Wh", "MWh"]
+
+        # Map it with an explicit Wh output unit.
+        r = client.put(
+            "/api/meters/m/mappings",
+            json={"mappings": [{"obis": "1-0:1.8.0*255", "topic": "power/m/total", "enabled": True, "unit": "Wh"}]},
+        )
+        assert r.status_code == 200
+        assert manager.config.get_meter("m").mappings[0].unit == "Wh"
+
+        # After the worker restarts with the new mapping, the value is shown in Wh.
+        def shown_in_wh():
+            b = client.get("/api/meters/m/discovered").json()
+            e = next((v for v in b["values"] if v["code"] == "1-0:1.8.0*255"), None)
+            return e is not None and e["unit"] == "Wh"
+
+        assert wait_until(shown_in_wh, timeout=3.0)
+    finally:
+        manager.stop()
+
+
 def test_dashboard_crud(tmp_path):
     client, manager = make_env(tmp_path)
     try:

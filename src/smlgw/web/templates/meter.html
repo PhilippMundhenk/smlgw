@@ -105,9 +105,11 @@ async function loadValues() {
   const tbody = document.querySelector('#values tbody');
   const scrollKeep = {};
   tbody.querySelectorAll('tr').forEach(tr => {
+    const unitSel = tr.querySelector('.unit');
     scrollKeep[tr.dataset.code] = {
       topic: tr.querySelector('.topic').value,
       enabled: tr.querySelector('.enabled').checked,
+      unit: unitSel ? unitSel.value : null,
     };
   });
   tbody.innerHTML = '';
@@ -127,7 +129,24 @@ async function loadValues() {
     tr.appendChild(cell('mono', v.code));
     tr.appendChild(cell('muted', v.name === v.code ? '' : v.name));
     tr.appendChild(cell('right mono', v.value));
-    tr.appendChild(cell('', v.unit || ''));
+    // Unit: a dropdown when the reading offers a choice (e.g. kWh/Wh/MWh),
+    // otherwise plain text. Selection preserved across refreshes and persisted.
+    const options = v.unit_options && v.unit_options.length ? v.unit_options : [v.unit || ''];
+    const unitTd = document.createElement('td');
+    if (options.length > 1) {
+      const sel = document.createElement('select');
+      sel.className = 'unit';
+      const chosen = prev && prev.unit ? prev.unit : (v.mapped_unit || v.unit);
+      options.forEach(u => {
+        const o = document.createElement('option'); o.value = u; o.textContent = u;
+        if (u === chosen) o.selected = true;
+        sel.appendChild(o);
+      });
+      unitTd.appendChild(sel);
+    } else {
+      unitTd.textContent = v.unit || '';
+    }
+    tr.appendChild(unitTd);
     const topicTd = document.createElement('td');
     const topicInput = document.createElement('input');
     topicInput.className = 'topic'; topicInput.style.width = '100%'; topicInput.value = topic;
@@ -145,7 +164,12 @@ $('save-maps').onclick = async () => {
   const mappings = [];
   rows.forEach(tr => {
     const topic = tr.querySelector('.topic').value.trim();
-    if (topic) mappings.push({ obis: tr.dataset.code, topic, enabled: tr.querySelector('.enabled').checked });
+    const unitSel = tr.querySelector('.unit');
+    if (topic) mappings.push({
+      obis: tr.dataset.code, topic,
+      enabled: tr.querySelector('.enabled').checked,
+      unit: unitSel ? unitSel.value : null,
+    });
   });
   try {
     const r = await api('PUT', `/api/meters/${METER}/mappings`, { mappings });

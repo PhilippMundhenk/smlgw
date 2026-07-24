@@ -80,11 +80,28 @@ def obis_name(code: str) -> str:
     return OBIS_NAMES.get(code, code)
 
 
-# DLMS unit code for active energy in watt-hours. The legacy smartmeter-obis
-# library special-cased this: it divides the value by 1000 and reports kWh.
-UNIT_WH = 30
+# Selectable output units per DLMS unit code, as (label, scale) applied to the
+# raw scaled value. The FIRST entry is the default. Energy (Wh, code 30)
+# defaults to kWh (÷1000) to match the legacy smartmeter-obis gateway, but the
+# meter settings let a user pick any of the alternatives per value.
+UNIT_OPTIONS: dict[int, list[tuple[str, str]]] = {
+    30: [("kWh", "0.001"), ("Wh", "1"), ("MWh", "0.000001")],  # active energy
+    31: [("kVAh", "0.001"), ("VAh", "1")],  # apparent energy
+    32: [("kvarh", "0.001"), ("varh", "1")],  # reactive energy
+    27: [("W", "1"), ("kW", "0.001")],  # active power
+    28: [("VA", "1"), ("kVA", "0.001")],  # apparent power
+    29: [("var", "1"), ("kvar", "0.001")],  # reactive power
+}
 
 _TEN = Decimal(10)
+
+
+def unit_options(unit_code: int) -> list[tuple[str, Decimal]]:
+    """Return the selectable ``(label, scale)`` options for a DLMS unit code."""
+    opts = UNIT_OPTIONS.get(unit_code)
+    if opts:
+        return [(label, Decimal(scale)) for label, scale in opts]
+    return [(DLMS_UNITS.get(unit_code, ""), Decimal(1))]
 
 
 def _scaled_decimal(raw_value: int | float, scaler: int) -> Decimal:
@@ -137,47 +154,64 @@ class ObisValue:
     value_time: int | None = None
 
     @property
-    def unit(self) -> str:
-        # Energy (Wh) is reported as kWh because the value is divided by 1000.
-        if self.unit_code == UNIT_WH:
-            return "kWh"
-        return DLMS_UNITS.get(self.unit_code, "")
-
-    @property
     def is_numeric(self) -> bool:
         return isinstance(self.raw_value, (int, float)) and not isinstance(self.raw_value, bool)
 
-    def _scaled(self) -> Decimal:
-        scaled = _scaled_decimal(self.raw_value, self.scaler)
-        if self.unit_code == UNIT_WH:
-            scaled = scaled / Decimal(1000)
-        return scaled
+    def _dlms_base(self) -> Decimal:
+        """Value scaled by ``10**scaler`` in the meter's native DLMS unit."""
+        return _scaled_decimal(self.raw_value, self.scaler)
+
+    def _resolve(self, unit_label: str | None) -> tuple[str, Decimal]:
+        """Pick the requested output unit, or the default (first) option."""
+        options = unit_options(self.unit_code)
+        if unit_label is not None:
+            for label, scale in options:
+                if label == unit_label:
+                    return label, scale
+        return options[0]
+
+    def unit_options(self) -> list[str]:
+        """The selectable output-unit labels for this reading."""
+        return [label for label, _ in unit_options(self.unit_code)]
+
+    @property
+    def default_unit(self) -> str:
+        return self._resolve(None)[0]
+
+    def unit_for(self, unit_label: str | None = None) -> str:
+        """The output unit label for *unit_label* (or the default)."""
+        return self._resolve(unit_label)[0]
+
+    @property
+    def unit(self) -> str:
+        return self.unit_for(None)
 
     @property
     def value(self) -> object:
-        """The final scaled value (Wh→kWh applied); non-numeric passes through."""
+        """The default-unit scaled value; non-numeric readings pass through."""
         if self.is_numeric:
-            return _clean10(self._scaled())
+            return _clean10(self._dlms_base() * self._resolve(None)[1])
         return self.raw_value
 
-    def numeric_value(self) -> float | None:
-        """The published value as a float, or ``None`` for non-numeric readings."""
+    def numeric_value(self, unit_label: str | None = None) -> float | None:
+        """The published value as a float in *unit_label*, or ``None`` if non-numeric."""
         if self.is_numeric:
-            return float(self.value)
+            _, scale = self._resolve(unit_label)
+            return float(_clean10(self._dlms_base() * scale))
         return None
 
-    def value_to_string(self) -> str:
+    def value_to_string(self, unit_label: str | None = None) -> str:
         """Numeric/string value only, matching ``.valueToString().split(" ")[0]``."""
         if self.is_numeric:
-            return _format_number(self._scaled())
+            _, scale = self._resolve(unit_label)
+            return _format_number(self._dlms_base() * scale)
         if isinstance(self.raw_value, (bytes, bytearray)):
             return _octet_to_string(bytes(self.raw_value))
         return str(self.raw_value)
 
-    def full_string(self) -> str:
+    def full_string(self, unit_label: str | None = None) -> str:
         """Value with unit, matching smartmeter-obis ``valueToString()``."""
-        base = self.value_to_string()
-        return f"{base} {self.unit}".rstrip()
+        return f"{self.value_to_string(unit_label)} {self.unit_for(unit_label)}".rstrip()
 
     @property
     def name(self) -> str:

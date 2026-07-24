@@ -41,6 +41,7 @@ class DiscoveredValue:
     unit: str
     last_seen: float
     count: int = 0
+    unit_options: list = None  # selectable output-unit labels
 
     def to_dict(self) -> dict:
         return {
@@ -50,6 +51,7 @@ class DiscoveredValue:
             "unit": self.unit,
             "last_seen": self.last_seen,
             "count": self.count,
+            "unit_options": self.unit_options or [],
         }
 
 
@@ -107,23 +109,28 @@ class MeterWorker:
         now = self.manager.clock()
         if result.server_id is not None:
             self.server_id = result.server_id.hex()
-        mappings = {m.obis: m for m in self.config.mappings if m.enabled}
+        # The chosen output unit is a per-OBIS presentation setting; it applies to
+        # display, publishing and history alike so they never disagree.
+        unit_by_obis = {m.obis: m.unit for m in self.config.mappings}
+        enabled = {m.obis: m for m in self.config.mappings if m.enabled}
         with self._lock:
             for value in result.values:
+                unit_label = unit_by_obis.get(value.code)
                 existing = self.discovered.get(value.code)
                 count = (existing.count + 1) if existing else 1
                 self.discovered[value.code] = DiscoveredValue(
                     code=value.code,
                     name=obis_name(value.code),
-                    value=value.value_to_string(),
-                    unit=value.unit,
+                    value=value.value_to_string(unit_label),
+                    unit=value.unit_for(unit_label),
                     last_seen=now,
                     count=count,
+                    unit_options=value.unit_options(),
                 )
-                mapping = mappings.get(value.code)
+                mapping = enabled.get(value.code)
                 if mapping is not None:
-                    self.manager.publish(mapping.topic, value.value_to_string())
-                numeric = value.numeric_value()
+                    self.manager.publish(mapping.topic, value.value_to_string(mapping.unit))
+                numeric = value.numeric_value(unit_label)
                 if numeric is not None:
                     self.manager.record_history(self.config.id, value.code, numeric, now)
 

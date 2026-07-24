@@ -104,6 +104,31 @@ def test_disabled_mapping_is_not_published():
     assert "power/heating/ht" not in publisher.topics
 
 
+def test_mapping_unit_override_changes_published_payload():
+    # Same meter, but the total is mapped with an explicit "Wh" output unit.
+    cfg = AppConfig(
+        mqtt=MqttConfig(host="test"),
+        meters=[
+            MeterConfig(
+                id="heating",
+                port="sim-heating",
+                mappings=[Mapping("1-0:1.8.0*255", "power/heating/total_wh", unit="Wh")],
+            )
+        ],
+    )
+    publisher = RecordingPublisher()
+    manager = MeterManager(
+        cfg, publisher, transport_factory=lambda c: BytesTransport([HEATING])
+    )
+    manager.start()
+    try:
+        assert wait_until(lambda: "power/heating/total_wh" in publisher.topics)
+    finally:
+        manager.stop()
+    # 734512 * 10^-1 = 73451.2 Wh (no /1000), instead of the default 73.4512 kWh.
+    assert publisher.topics["power/heating/total_wh"] == "73451.2"
+
+
 def test_retain_flag_follows_mqtt_config():
     cfg = _config()
     cfg.mqtt.retain = True

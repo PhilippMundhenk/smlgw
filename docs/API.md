@@ -76,8 +76,14 @@ Discovered values plus current mappings.
 ```
 
 ### `PUT /api/meters/{id}/mappings`
-Replace the meter's OBIS→topic mappings.
-Body: `{"mappings":[{"obis":"1-0:1.8.0*255","topic":"power/heating/total","enabled":true}]}`.
+Replace the meter's OBIS→topic mappings. Each mapping may include an optional
+`unit` selecting the output unit (one of the reading's `unit_options`, e.g.
+`"Wh"`); omit it for the default. The chosen unit applies to the MQTT payload,
+the UI value and history alike.
+Body: `{"mappings":[{"obis":"1-0:1.8.0*255","topic":"power/heating/total","enabled":true,"unit":"kWh"}]}`.
+
+The `discovered` response above includes `unit_options` (selectable labels) and
+`mapped_unit` (the currently chosen one) per value to drive the unit dropdown.
 
 ---
 

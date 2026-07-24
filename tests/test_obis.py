@@ -54,6 +54,33 @@ def test_energy_unit30_is_divided_by_1000_kwh(raw, scaler, expected):
     assert v.full_string() == f"{expected} kWh"
 
 
+def test_unit_override_switches_scale():
+    v = ObisValue(code="1-0:1.8.0*255", raw_value=734512, scaler=-1, unit_code=30)
+    # Default stays kWh (legacy-compatible)...
+    assert v.value_to_string() == "73.4512"
+    assert v.unit == "kWh"
+    # ...but the output unit is selectable per reading.
+    assert v.value_to_string("Wh") == "73451.2"
+    assert v.unit_for("Wh") == "Wh"
+    assert v.numeric_value("Wh") == 73451.2
+    assert v.value_to_string("MWh") == "0.0734512"
+    # An unknown/blank label falls back to the default.
+    assert v.value_to_string("bogus") == "73.4512"
+
+
+def test_unit_options_listed_and_default_first():
+    v = ObisValue(code="1-0:1.8.0*255", raw_value=1, scaler=0, unit_code=30)
+    assert v.unit_options() == ["kWh", "Wh", "MWh"]
+    assert v.default_unit == "kWh"
+    # Power offers W/kW, defaulting to W.
+    p = ObisValue(code="1-0:16.7.0*255", raw_value=1, scaler=0, unit_code=27)
+    assert p.unit_options() == ["W", "kW"]
+    assert p.value_to_string("kW") == "0.001"
+    # A unit without alternatives lists just itself.
+    volt = ObisValue(code="1-0:32.7.0*255", raw_value=2301, scaler=-1, unit_code=35)
+    assert volt.unit_options() == ["V"]
+
+
 def test_full_string_includes_unit():
     v = ObisValue(code="1-0:16.7.0*255", raw_value=4123, scaler=-1, unit_code=27)
     assert v.full_string() == "412.3 W"

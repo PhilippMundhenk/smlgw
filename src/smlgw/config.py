@@ -21,11 +21,16 @@ DEFAULT_CONFIG_PATH = os.environ.get("SMLGW_CONFIG", "config.yaml")
 
 @dataclass
 class Mapping:
-    """Maps one discovered OBIS code to an MQTT topic."""
+    """Maps one discovered OBIS code to an MQTT topic.
+
+    ``unit`` optionally selects the output unit (e.g. "Wh" instead of the default
+    "kWh"); ``None`` means use the reading's default unit.
+    """
 
     obis: str
     topic: str
     enabled: bool = True
+    unit: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "Mapping":
@@ -33,6 +38,7 @@ class Mapping:
             obis=str(data["obis"]),
             topic=str(data["topic"]),
             enabled=bool(data.get("enabled", True)),
+            unit=(str(data["unit"]) if data.get("unit") else None),
         )
 
 

@@ -308,10 +308,12 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
                 "name": d.name,
                 "value": d.value,
                 "unit": d.unit,
+                "unit_options": d.unit_options or [],
                 "last_seen": d.last_seen,
                 "count": d.count,
                 "mapped_topic": mapped[d.code].topic if d.code in mapped else None,
                 "mapped_enabled": mapped[d.code].enabled if d.code in mapped else False,
+                "mapped_unit": mapped[d.code].unit if d.code in mapped else None,
             }
             for d in manager.discovered(meter_id)
         ]
@@ -338,7 +340,14 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
         for m in raw_mappings:
             if not isinstance(m, dict) or "obis" not in m or "topic" not in m:
                 _bad("each mapping needs 'obis' and 'topic'")
-            mappings.append(Mapping(obis=str(m["obis"]), topic=str(m["topic"]), enabled=_as_bool(m.get("enabled"), True)))
+            mappings.append(
+                Mapping(
+                    obis=str(m["obis"]),
+                    topic=str(m["topic"]),
+                    enabled=_as_bool(m.get("enabled"), True),
+                    unit=(str(m["unit"]) if m.get("unit") else None),
+                )
+            )
 
         def build(cfg: AppConfig) -> AppConfig:
             meter = cfg.get_meter(meter_id)

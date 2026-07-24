@@ -158,7 +158,12 @@ meters:
 | `enabled` | bool | `true` | Disabled meters are not read. |
 | `verify_crc` | bool | `false` | If true, frames failing CRC are dropped. |
 | `pin` | string \| null | `null` | Optional stored PIN. |
-| `mappings[]` | list | `[]` | `{obis, topic, enabled}` — publish this OBIS code to this topic. |
+| `mappings[]` | list | `[]` | `{obis, topic, enabled, unit}` — publish this OBIS code to this topic. |
+
+Each mapping's optional **`unit`** selects the output unit for that reading
+(e.g. `Wh` instead of the default `kWh`, or `kW` instead of `W`); omit it (or set
+`null`) to use the reading's default unit. The chosen unit applies consistently
+to the MQTT payload, the value shown in the UI, and what is recorded to history.
 
 Only OBIS codes with an **enabled** mapping are published to MQTT; every numeric
 value is still recorded to history and shown in the UI.
