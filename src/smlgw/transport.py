@@ -37,6 +37,11 @@ class SerialTransport:
     ``socket://meter-host:5000`` or ``rfc2217://meter-host:5000`` (as served by
     ``ser2net``/``socat``). URLs are opened via ``serial_for_url`` so the gateway
     can run anywhere, not only on the box the IR reader is plugged into.
+
+    ``port`` may also be a ``usb:`` selector (``usb:serial=A50285BI``, see
+    :mod:`smlgw.devices`) pinning the reader by serial number or USB socket.
+    It is resolved to the current ``/dev/tty*`` name on every :meth:`open`, so
+    a reconnect after an unplug finds the reader under its new name.
     """
 
     def __init__(self, port: str, baudrate: int = 9600, timeout: float = 1.0) -> None:
@@ -44,6 +49,7 @@ class SerialTransport:
         self.baudrate = baudrate
         self.timeout = timeout
         self._serial = None
+        self.device: str | None = None  # path actually opened (resolved selector)
 
     @property
     def is_network(self) -> bool:
@@ -66,15 +72,20 @@ class SerialTransport:
             ser.timeout = self.timeout
             ser.open()
             self._serial = ser
+            self.device = self.port
         else:
+            from .devices import resolve_port
+
+            device = resolve_port(self.port)
             self._serial = serial.Serial(
-                port=self.port,
+                port=device,
                 baudrate=self.baudrate,
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
                 timeout=self.timeout,
             )
+            self.device = device
 
     def read(self, size: int) -> bytes:
         if self._serial is None:

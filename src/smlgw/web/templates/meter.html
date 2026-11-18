@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}smlgw — {{ meter.name }}{% endblock %}
 {% block headerright %}<a href="/settings">← all meters</a>{% endblock %}
+{% from "_ports.html" import port_picker %}
 {% block content %}
 <div class="panel">
   <h2>{{ meter.name }} <span class="pill">{{ meter.id }}</span></h2>
@@ -9,7 +10,9 @@
     <label>Baud rate</label><input id="m-baud" type="number" value="{{ meter.baudrate }}">
     <label>Name</label><input id="m-name" value="{{ meter.name }}">
     <label>Enabled</label><input id="m-enabled" type="checkbox" {% if meter.enabled %}checked{% endif %} style="width:auto">
+    <label>Opened device</label><span class="mono muted" id="m-device">{{ device or "—" }}</span>
   </div>
+  {{ port_picker("m-port", ports) }}
   <div class="row" style="margin-top:12px">
     <button id="save-meter">Save settings</button>
     <button class="danger" id="del-meter">Delete meter</button>
@@ -19,6 +22,7 @@
 
 <div class="panel">
   <h2>Detected values <span id="state-badge" class="badge stopped">…</span></h2>
+  <p class="port-warn mono" id="meter-error"></p>
   <p class="muted" id="no-data-hint" style="display:none">
     No data detected yet. If this meter is locked behind a PIN, use the PIN tools below.
   </p>
@@ -101,6 +105,9 @@ async function loadValues() {
   const badge = $('state-badge');
   badge.className = 'badge ' + data.state;
   badge.textContent = data.state;
+  badge.title = data.last_error || '';
+  $('m-device').textContent = data.device || '—';
+  $('meter-error').textContent = data.state === 'error' && data.last_error ? data.last_error : '';
   $('no-data-hint').style.display = data.has_data ? 'none' : 'block';
   const tbody = document.querySelector('#values tbody');
   const scrollKeep = {};

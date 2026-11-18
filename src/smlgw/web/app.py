@@ -48,6 +48,7 @@ from ..config import (
     Series,
     save_config,
 )
+from ..devices import DeviceSelectorError, list_devices, validate_port
 from ..manager import MeterManager
 from ..obis import obis_name
 from .jobs import PinJobManager
@@ -103,12 +104,21 @@ def _as_bool(value, default):
 
 
 def list_serial_ports() -> list:
+    """Attached serial adapters with their stable addresses (see smlgw.devices)."""
     try:
-        from serial.tools import list_ports
-
-        return [{"device": p.device, "description": p.description} for p in list_ports.comports()]
+        return list_devices()
     except Exception:
         return []
+
+
+def _port_arg(value) -> str:
+    """Validate a meter ``port`` from a request body (400 on a bad usb: selector)."""
+    port = value.strip() if isinstance(value, str) else ""
+    try:
+        validate_port(port)
+    except DeviceSelectorError as exc:
+        _bad(f"invalid port: {exc}")
+    return port
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -179,8 +189,12 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
 
     def meter_view(request: Request):
         meter = require_meter(request.path_params["meter_id"])
+        worker = manager.get_worker(meter.id)
+        device = getattr(worker.transport, "device", None) if worker is not None else None
         return templates.TemplateResponse(
-            request, "meter.html", {"meter": meter, "ports": list_serial_ports()}
+            request,
+            "meter.html",
+            {"meter": meter, "ports": list_serial_ports(), "device": device},
         )
 
     def login_view(request: Request):
@@ -259,7 +273,7 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
             meter = MeterConfig(
                 id=meter_id,
                 name=body.get("name") or meter_id,
-                port=body.get("port", ""),
+                port=_port_arg(body.get("port", "")),
                 baudrate=_as_int(body.get("baudrate"), 9600),
                 enabled=_as_bool(body.get("enabled"), True),
                 verify_crc=_as_bool(body.get("verify_crc"), False),
@@ -281,7 +295,7 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
             updated = replace(
                 meter,
                 name=body["name"] if "name" in body else meter.name,
-                port=body["port"] if "port" in body else meter.port,
+                port=_port_arg(body["port"]) if "port" in body else meter.port,
                 baudrate=_as_int(body["baudrate"], meter.baudrate) if "baudrate" in body else meter.baudrate,
                 enabled=_as_bool(body["enabled"], meter.enabled) if "enabled" in body else meter.enabled,
                 verify_crc=_as_bool(body["verify_crc"], meter.verify_crc) if "verify_crc" in body else meter.verify_crc,
@@ -323,6 +337,8 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
                 "meter": meter_id,
                 "has_data": bool(values),
                 "state": worker.reader.state if worker else "stopped",
+                "last_error": worker.reader.last_error if worker else None,
+                "device": getattr(worker.transport, "device", None) if worker else None,
                 "values": values,
                 "mappings": [
                     {"obis": m.obis, "topic": m.topic, "enabled": m.enabled} for m in meter.mappings
@@ -444,6 +460,11 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
             if not isinstance(data, dict):
                 raise ValueError("configuration must be a mapping")
             new_config = AppConfig.from_dict(data)
+            for meter in new_config.meters:
+                try:
+                    validate_port(meter.port)
+                except DeviceSelectorError as exc:
+                    raise ValueError(f"meter {meter.id!r}: {exc}") from None
         except Exception as exc:  # noqa: BLE001 - surfaced to the user
             raise HTTPException(status_code=400, detail=f"invalid configuration: {exc}")
         current_secret = manager.config.auth.secret
