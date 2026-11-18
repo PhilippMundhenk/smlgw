@@ -14,11 +14,16 @@ concurrency:
 jobs:
   test:
     name: Tests (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        include:
+          # ubuntu-latest is Ubuntu 26.04 since Oct 2026 and has no Python 3.9
+          # build; 3.9 stays supported for ARMv6 boards, so test it on 24.04.
+          - python-version: "3.9"
+            os: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
