@@ -1,0 +1,129 @@
+{
+  "checks": [
+    {
+      "name": "config-keys-documented",
+      "type": "listed",
+      "source": [
+        "src/smlgw/config.py"
+      ],
+      "pattern": "data(?:\\.get\\(|\\[)\"(\\w+)\"",
+      "targets": [
+        {
+          "file": "docs/CONFIGURATION.md",
+          "format": "`{}(\\[\\])?`",
+          "regex": true
+        }
+      ]
+    },
+    {
+      "name": "api-routes-documented",
+      "type": "listed",
+      "source": [
+        "src/smlgw/web/app.py"
+      ],
+      "pattern": "Route\\(\"(/api/[A-Za-z/]+?)/?(?:\\{|\")",
+      "ignore": [
+        "/api/login"
+      ],
+      "targets": [
+        {
+          "file": "docs/API.md"
+        }
+      ]
+    },
+    {
+      "name": "modules-in-readme",
+      "type": "mentioned",
+      "docs": [
+        "README.md"
+      ],
+      "files": [
+        "src/smlgw/*.py",
+        "src/smlgw/sml/*.py",
+        "src/smlgw/web/*.py"
+      ],
+      "ignore": [
+        "__init__",
+        "__main__",
+        "crc",
+        "parser",
+        "builder",
+        "jobs",
+        "app"
+      ]
+    },
+    {
+      "name": "retired-terms",
+      "type": "retired",
+      "scope": [
+        "README.md",
+        "docs/*.md",
+        "src/**",
+        "config.example.yaml"
+      ],
+      "allow_in": [
+        "CHANGELOG.md",
+        "tests/*"
+      ],
+      "terms": [
+        {
+          "term": "find_conflicts",
+          "hint": "renamed find_shared_readers (#5)"
+        },
+        {
+          "term": "\"conflicts\"",
+          "hint": "status field is shared_with since #5"
+        },
+        {
+          "term": "One reader per meter",
+          "hint": "section is 'Several meters on one reader' since #5"
+        }
+      ]
+    },
+    {
+      "name": "closed-issue-refs",
+      "type": "closed_issues",
+      "docs": [
+        "README.md",
+        "docs/*.md"
+      ]
+    },
+    {
+      "name": "changelog",
+      "type": "changelog",
+      "file": "CHANGELOG.md"
+    },
+    {
+      "name": "screenshots",
+      "type": "fresh",
+      "items": [
+        {
+          "image": "docs/screenshots/settings-meters.png",
+          "sources": [
+            "src/smlgw/web/templates/settings.html",
+            "src/smlgw/web/templates/_ports.html"
+          ]
+        },
+        {
+          "image": "docs/screenshots/meter-values.png",
+          "sources": [
+            "src/smlgw/web/templates/meter.html"
+          ]
+        },
+        {
+          "image": "docs/screenshots/dashboard.png",
+          "sources": [
+            "src/smlgw/web/templates/dashboard.html",
+            "src/smlgw/web/static/charts.js"
+          ]
+        },
+        {
+          "image": "docs/screenshots/pin-tools.png",
+          "sources": [
+            "src/smlgw/web/templates/meter.html"
+          ]
+        }
+      ]
+    }
+  ]
+}

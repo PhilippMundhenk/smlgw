@@ -99,7 +99,8 @@ hand).
 
 ## `dashboard`
 
-Saved dashboard panels. Usually edited through the UI, but fully declarative.
+Saved dashboard panels (`panels`). Usually edited through the UI, but fully
+declarative.
 
 ```yaml
 dashboard:
@@ -130,6 +131,13 @@ dashboard:
 | `gauge_min` / `gauge_max` | float | `0` / `100` | Gauge bounds. |
 | `series[]` | list | `[]` | Sources. `stat`/`gauge` use the first entry. |
 
+| Series field | Type | Default | Notes |
+|---|---|---|---|
+| `meter` | string | — | Meter id. |
+| `obis` | string | — | OBIS code, e.g. `1-0:16.7.0*255`. |
+| `label` | string | `""` | Legend label (default: `<meter> · <OBIS description>`). |
+| `color` | string | `""` | Hex colour (default: automatic). |
+
 ---
 
 ## `meters`
@@ -159,6 +167,13 @@ meters:
 | `verify_crc` | bool | `false` | If true, frames failing CRC are dropped. |
 | `pin` | string \| null | `null` | Optional stored PIN. |
 | `mappings[]` | list | `[]` | `{obis, topic, enabled, unit}` — publish this OBIS code to this topic. |
+
+| Mapping field | Type | Default | Notes |
+|---|---|---|---|
+| `obis` | string | — | OBIS code to publish, e.g. `1-0:1.8.0*255`. |
+| `topic` | string | — | MQTT topic. |
+| `enabled` | bool | `true` | Publish it (disabled mappings are kept but not sent). |
+| `unit` | string \| null | `null` | Output unit, see below. |
 
 Each mapping's optional **`unit`** selects the output unit for that reading
 (e.g. `Wh` instead of the default `kWh`, or `kW` instead of `W`); omit it (or set

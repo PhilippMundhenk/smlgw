@@ -201,5 +201,9 @@ Cancel a running **bruteforce** (a single `send` cannot be interrupted).
 Login form, form-encoded login (`password` field), and logout. Only meaningful
 when a UI password is enabled.
 
+### `GET /api/obis/{code}`
+Human-readable name of an OBIS code, as shown in the UI:
+`{"code": "1-0:1.8.0*255", "name": "Positive active energy total (A+)"}`.
+
 ### `GET /health`
 Liveness probe: `{"ok": true}`. Always open.

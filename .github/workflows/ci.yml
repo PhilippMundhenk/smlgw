@@ -41,6 +41,17 @@ jobs:
       - name: Run test suite
         run: pytest -q
 
+  consistency:
+    name: Docs/changelog consistency
+    runs-on: ubuntu-latest
+    permissions: { contents: read, issues: read }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Check docs, changelog and screenshots against the code
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 tools/consistency_check.py --config tools/consistency.json
+
   docker-build:
     name: Docker build (validation)
     runs-on: ubuntu-latest
