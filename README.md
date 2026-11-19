@@ -340,17 +340,20 @@ A JSON API backs the UI and is handy for automation. Full reference in
 
 ## CI/CD
 
-- **CI** (`.github/workflows/ci.yml`) runs the test suite on Python 3.10–3.13
-  and validates the Docker build on every push and PR.
+- **CI** (`.github/workflows/ci.yml`) runs the test suite on Python 3.9–3.13,
+  checks docs/changelog consistency (`tools/consistency_check.py`) and validates
+  the Docker build on every push and PR.
 - **Docker Release** (`.github/workflows/docker-release.yml`) builds a
   multi-arch (amd64/arm64) image and pushes to GHCR:
   - push to `main` → `:main` and `:edge`
   - tag `vX.Y.Z` → `:X.Y.Z`, `:X.Y`, `:X`, `:latest`
 
-Cut a release with:
+Cut a release by adding a dated section to [CHANGELOG.md](CHANGELOG.md), bumping
+the version in `pyproject.toml` and `src/smlgw/__init__.py`, then:
 
 ```bash
-git tag v1.0.0 && git push origin v1.0.0
+python3 tools/consistency_check.py --version X.Y.Z
+git tag -a vX.Y.Z -m "smlgw X.Y.Z" && git push origin vX.Y.Z
 ```
 
 ---

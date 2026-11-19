@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smlgw"
-version = "1.0.0"
+version = "1.1.0"
 description = "Smart meter (SML/OBIS) to MQTT gateway with a web configuration UI"
 readme = "README.md"
 requires-python = ">=3.9"
