@@ -140,7 +140,7 @@ The list of meters to read.
 meters:
   - id: heating              # used in default topic suggestions; must be unique
     name: Heating            # display name (defaults to id)
-    port: /dev/ttyUSB0       # serial device (COM3 on Windows)
+    port: usb:serial=A50285BI  # pinned reader (or /dev/serial/by-id/..., /dev/ttyUSB0, COM3)
     baudrate: 9600
     enabled: true
     verify_crc: false        # drop frames with a bad CRC (default: tolerate)
@@ -153,7 +153,7 @@ meters:
 |---|---|---|---|
 | `id` | string | — | Unique id. |
 | `name` | string | = `id` | Display name. |
-| `port` | string | `""` | Serial device path (`/dev/ttyUSB0`, `COM3`) **or** a pyserial URL for a networked meter (`socket://host:5000`, `rfc2217://host:5000`). |
+| `port` | string | `""` | Which reader to open: a **`usb:` selector** pinning the reader by serial number or USB socket (`usb:serial=A50285BI`, `usb:location=1-1.2`; see [Pinning readers](#pinning-readers-to-stable-ids)), a device path (`/dev/serial/by-id/…`, `/dev/ttyUSB0`, `COM3`), **or** a pyserial URL for a networked meter (`socket://host:5000`, `rfc2217://host:5000`). |
 | `baudrate` | int | `9600` | Typically 9600 for SML. |
 | `enabled` | bool | `true` | Disabled meters are not read. |
 | `verify_crc` | bool | `false` | If true, frames failing CRC are dropped. |
@@ -167,3 +167,49 @@ to the MQTT payload, the value shown in the UI, and what is recorded to history.
 
 Only OBIS codes with an **enabled** mapping are published to MQTT; every numeric
 value is still recorded to history and shown in the UI.
+
+### Pinning readers to stable IDs
+
+Kernel names like `/dev/ttyUSB0` are handed out in plug-in order. With more than
+one IR reader, a reboot, an unplug or a USB hub can swap them, and each meter's
+values silently end up on the other meter's topics. Pin each meter to its
+**reader** instead:
+
+| `port` value | Matches | Use when |
+|---|---|---|
+| `usb:serial=A50285BI` | the adapter's USB serial number | the reader has a unique serial (FTDI, CP210x and most branded IR heads). Follows the reader to any socket. |
+| `usb:location=1-1.2` | the physical USB socket (bus-port path) | the reader has no serial number, or several share one (cheap CH340 clones). Stays valid as long as the reader stays in the same socket of the same hub. |
+| `usb:vid=0403,pid=6001` | vendor/product id | only one adapter of that model is attached. |
+| `/dev/serial/by-id/usb-FTDI_…-if00-port0` | udev symlink by serial | you prefer plain paths (Linux with udev). |
+| `/dev/serial/by-path/…-usb-0:1.2:1.0-port0` | udev symlink by socket | same, by socket. |
+
+Keys combine with commas and all must match, e.g.
+`usb:vid=10c4,pid=ea60,serial=0001`. `vid`/`pid` are hex; `serial` is exact and
+case-sensitive; `location` may include the interface suffix pyserial reports
+(`1-1.2:1.0`) or omit it (`1-1.2`).
+
+The selector is resolved to the current `/dev/tty*` name **every time the port
+is opened**, so after an unplug the reconnect loop finds the reader again under
+its new name. If no reader or more than one reader matches, the meter goes to
+`error` with a message saying so (`no serial device matches …` /
+`… is ambiguous, it matches /dev/ttyUSB0, /dev/ttyUSB1`); it never guesses.
+Malformed selectors are rejected when saved from the UI/API or imported.
+
+To find the right value, plug in the readers and either open a meter page (the
+**Detected serial adapters** table has a *use* button per reader) or run:
+
+```console
+$ smlgw ports
+/dev/ttyUSB0  FT232R USB UART  [0403:6001]
+    serial number: A50285BI
+    usb location:  1-1.2:1.0
+    symlink:       /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0
+    use as port:   usb:serial=A50285BI
+
+configured meters:
+  heating: usb:serial=A50285BI -> /dev/ttyUSB0
+```
+
+`smlgw ports` exits non-zero if a configured meter's selector matches no reader
+or several. Meters still using a kernel name are marked **⚠ unstable** in the
+meter list.

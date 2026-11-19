@@ -22,6 +22,11 @@ as the legacy gateway), stores them as **time series**, and ships a
   (meter, OBIS) sources. Self-contained canvas rendering, no external JS.
 - **History with configurable retention.** Every numeric reading is stored in
   SQLite; retention window and sample spacing are set on the Settings page.
+- **Readers pinned by serial number.** With several IR readers, `/dev/ttyUSB0`
+  and `/dev/ttyUSB1` can swap after a reboot or replug. A meter's port can name
+  the *reader* instead (`usb:serial=A50285BI`, `usb:location=1-1.2`, or a
+  `/dev/serial/by-id/…` path), re-resolved on every reconnect; the UI and
+  `smlgw ports` list the attached readers with the value to use.
 - **Auto-discovery.** Whatever a meter transmits (e.g. a new `2.8.0` export
   register) appears in the UI, ready to be mapped to MQTT and plotted.
 - **Settings page.** Central management of meters, the MQTT broker, history
@@ -73,6 +78,7 @@ serial/optical ─▶ SmlStreamParser ─▶ OBIS values ─┬▶ per-meter map
 | `smlgw/sml/` | SML transport framing, CRC-16/X.25, TL decoder + a matching frame **builder** used for tests/simulation |
 | `smlgw/obis.py` | OBIS formatting and value scaling (matches `smartmeter-obis`, incl. Wh→kWh) |
 | `smlgw/transport.py` | Serial transport + in-memory transports for tests |
+| `smlgw/devices.py` | Stable reader selection: `usb:` selectors, adapter listing (`smlgw ports`) |
 | `smlgw/reader.py` | transport → decoder → callback loop, with reconnect |
 | `smlgw/publisher.py` | MQTT publishing (paho) + a recording publisher for tests |
 | `smlgw/history.py` | SQLite time-series store with retention + downsampling |
@@ -99,7 +105,10 @@ re-titled or deleted. Sources are the (meter, OBIS) pairs your meters have
 emitted.
 
 ### Settings (`/settings`)
-- **Meters** — add/list meters, jump to a meter's page.
+- **Meters** — add/list meters, jump to a meter's page. The port field offers
+  the attached readers by stable ID (see
+  [Pinning readers](docs/CONFIGURATION.md#pinning-readers-to-stable-ids)); meters
+  still on a kernel name like `/dev/ttyUSB0` are marked **⚠ unstable**.
 - **MQTT broker** — host, port, credentials, TLS, retain. Saving reconnects the
   publisher live (no restart).
 - **History & retention** — enable/disable recording, the retention window in
@@ -110,7 +119,7 @@ emitted.
 - **Backup & restore** — download the full configuration as a YAML file and
   restore it later (applied live). Handy for migrating between hosts.
 
-![Settings page listing two meters in the "reading" state, with the add-meter form](docs/screenshots/settings-meters.png)
+![Settings page listing two meters pinned by USB serial number and socket, with the add-meter form and the detected serial adapters](docs/screenshots/settings-meters.png)
 
 ### Meter page (`/meter/{id}`)
 - **Detected values** — every OBIS code the meter emits, its live value and
@@ -196,7 +205,34 @@ For systemd, copy [`deploy/smlgw.service`](deploy/smlgw.service), ensure the
 service user is in `dialout` and `/etc/smlgw` is writable, then
 `sudo systemctl enable --now smlgw`.
 
-Find serial adapters with `ls -l /dev/serial/by-id/` and use those stable paths.
+With more than one reader, don't use `/dev/ttyUSB0`-style names: they follow
+plug-in order and can swap. Run `smlgw ports` to list the readers and set each
+meter's `port` to the suggested `usb:serial=…` (or `usb:location=…`) value — see
+[Pinning readers](docs/CONFIGURATION.md#pinning-readers-to-stable-ids).
+
+### Stable readers in Docker
+
+`--device` maps fixed device nodes when the container starts. Two ways to keep
+meters on the right reader:
+
+- **Map by ID** (simplest): pass each reader under a fixed name inside the
+  container and use that name as the meter's `port`. Docker resolves the
+  by-id symlink on the host at start-up:
+  ```bash
+  --device /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0:/dev/ttyHeating
+  ```
+- **Pass all readers and pin with `usb:` selectors**: map every reader
+  (`--device /dev/ttyUSB0 --device /dev/ttyUSB1`) and set `port:
+  usb:serial=…`. The container reads the adapters' serial numbers from the
+  host's (read-only) `/sys`, so the right reader is found whatever the order.
+  For hot-plug without a container restart, bind `/dev` and allow the USB serial
+  device classes instead of fixed `--device` flags:
+  ```bash
+  -v /dev:/dev --device-cgroup-rule='c 188:* rmw' --device-cgroup-rule='c 166:* rmw'
+  ```
+  (188 = `ttyUSB*`, 166 = `ttyACM*`).
+
+`docker exec smlgw smlgw ports` shows what the container sees.
 
 ### Raspberry Pi 1 / low-power boards (ARMv6)
 

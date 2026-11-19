@@ -3,6 +3,7 @@
     smlgw run                 # gateway + web UI (default)
     smlgw run --simulate      # no hardware: replay synthetic meters
     smlgw bruteforce <meter>  # headless PIN recovery (like the old pin.sh)
+    smlgw ports               # list serial adapters and their stable port names
 
 Everything is driven from the YAML config (``--config`` / ``$SMLGW_CONFIG``).
 """
@@ -142,6 +143,36 @@ def cmd_bruteforce(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_ports(args: argparse.Namespace) -> int:
+    """Print attached serial adapters and the stable ``port`` value for each."""
+    from .devices import list_devices, resolve_port
+
+    devices = list_devices()
+    if not devices:
+        print("no serial adapters found")
+    for d in devices:
+        ident = f"{d['vid']}:{d['pid']}" if d["vid"] else "-"
+        print(f"{d['device']}  {d['description']}  [{ident}]")
+        print(f"    serial number: {d['serial_number'] or '-'}")
+        print(f"    usb location:  {d['location'] or '-'}")
+        for link in d["by_id"] + d["by_path"]:
+            print(f"    symlink:       {link}")
+        print(f"    use as port:   {d['selector'] or (d['by_id'] or d['by_path'] or ['-'])[0]}")
+    config = load_config(args.config)
+    if config.meters:
+        print()
+        print("configured meters:")
+    status = 0
+    for meter in config.meters:
+        try:
+            device = resolve_port(meter.port)
+            note = f"-> {device}" if device != meter.port else ""
+        except Exception as exc:  # noqa: BLE001 - reported, not fatal
+            note, status = f"ERROR: {exc}", 1
+        print(f"  {meter.id}: {meter.port or '-'} {note}".rstrip())
+    return status
+
+
 def build_parser() -> argparse.ArgumentParser:
     # Common options usable either before or after the subcommand.
     common = argparse.ArgumentParser(add_help=False)
@@ -165,6 +196,11 @@ def build_parser() -> argparse.ArgumentParser:
     bf.add_argument("--start", type=int, default=0)
     bf.add_argument("--end", type=int, default=None)
     bf.set_defaults(func=cmd_bruteforce)
+
+    ports = sub.add_parser(
+        "ports", help="list serial adapters and stable port names", parents=[common]
+    )
+    ports.set_defaults(func=cmd_ports)
 
     return parser
 

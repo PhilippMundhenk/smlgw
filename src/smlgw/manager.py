@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Callable, Iterator
 
 from .config import AppConfig, MeterConfig
+from .devices import is_unstable_path
 from .obis import obis_name
 from .publisher import Publisher
 from .reader import MeterReader
@@ -145,6 +146,10 @@ class MeterWorker:
             "id": self.config.id,
             "name": self.config.name,
             "port": self.config.port,
+            # The /dev/tty* actually opened (differs from port for usb: selectors
+            # and by-id symlinks); None until the first successful open.
+            "device": getattr(self.transport, "device", None),
+            "unstable_port": is_unstable_path(self.config.port),
             "enabled": self.config.enabled,
             "running": self.running,
             "state": self.reader.state,
@@ -281,6 +286,8 @@ class MeterManager:
                         "id": meter.id,
                         "name": meter.name,
                         "port": meter.port,
+                        "device": None,
+                        "unstable_port": is_unstable_path(meter.port),
                         "enabled": meter.enabled,
                         "running": False,
                         "state": "stopped",

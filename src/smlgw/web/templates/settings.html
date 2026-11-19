@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}smlgw — settings{% endblock %}
+{% from "_ports.html" import port_picker %}
 {% block content %}
 
 <div class="panel">
@@ -10,7 +11,7 @@
       {% for m in status %}
       <tr data-id="{{ m.id }}">
         <td><a href="/meter/{{ m.id }}">{{ m.name }}</a></td>
-        <td class="mono">{{ m.port or "—" }}</td>
+        <td class="mono">{{ m.port or "—" }}{% if m.device and m.device != m.port %} <span class="muted">→ {{ m.device }}</span>{% endif %}{% if m.unstable_port %} <span class="port-flag" title="This kernel name can change between boots; pin the reader by serial number or USB location">⚠ unstable</span>{% endif %}</td>
         <td><span class="badge {{ m.state }}">{{ m.state }}</span></td>
         <td class="right count">{{ m.discovered_count }}</td>
         <td class="right"><a href="/meter/{{ m.id }}">configure →</a></td>
@@ -22,9 +23,10 @@
   <div class="grid" style="max-width:560px;margin-top:14px">
     <label>ID</label><input id="f-id" placeholder="e.g. heating">
     <label>Name</label><input id="f-name" placeholder="Display name">
-    <label>Serial port</label><input id="f-port" placeholder="/dev/ttyUSB0 or COM3">
+    <label>Serial port</label><input id="f-port" placeholder="usb:serial=…  or  socket://host:port">
     <label>Baud rate</label><input id="f-baud" type="number" value="9600">
   </div>
+  {{ port_picker("f-port", ports) }}
   <div class="row" style="margin-top:12px"><button id="add">Add meter</button><span id="add-msg" class="muted"></span></div>
 </div>
 

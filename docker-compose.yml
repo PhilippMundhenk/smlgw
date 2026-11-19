@@ -9,13 +9,17 @@ services:
     volumes:
       - ./config:/config
     # Pass through the meter's serial adapters. Adjust to your host devices
-    # (see `smlgw`'s device list in the web UI, or `ls -l /dev/serial/by-id`).
+    # (see the device list in the web UI, `smlgw ports`, or
+    # `ls -l /dev/serial/by-id`). With several readers, pin each meter with
+    # port: usb:serial=... so a swapped ttyUSB0/ttyUSB1 cannot mix them up.
     devices:
       - "/dev/ttyUSB0:/dev/ttyUSB0"
       - "/dev/ttyUSB1:/dev/ttyUSB1"
-    # Alternatively, for stable names use group_add + /dev/serial/by-id mounts.
-    # group_add:
-    #   - dialout
+    # Or map each reader by ID under a fixed name and use that name as port:
+    #   - "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0:/dev/ttyHeating"
+    # For hot-plug without a restart, drop `devices:`, add "/dev:/dev" to
+    # `volumes:` above and allow the USB serial device classes:
+    # device_cgroup_rules: ["c 188:* rmw", "c 166:* rmw"]   # ttyUSB*, ttyACM*
 
   # Optional local broker for testing; point mqtt.host at "mosquitto".
   # mosquitto:

@@ -17,17 +17,31 @@ Per-meter runtime state and MQTT connectivity.
 ```json
 {
   "meters": [
-    {"id":"heating","name":"Heating","port":"/dev/ttyUSB0","enabled":true,
-     "running":true,"state":"reading","last_error":null,"server_id":"0a...",
+    {"id":"heating","name":"Heating","port":"usb:serial=A50285BI",
+     "device":"/dev/ttyUSB1","unstable_port":false,"enabled":true,"running":true,"state":"reading","last_error":null,"server_id":"0a...",
      "discovered_count":7,"last_seen":1712345678.9,"has_data":true}
   ],
   "mqtt": {"connected": true}
 }
 ```
 `state` is one of `stopped`, `connecting`, `connected`, `reading`, `error`.
+`device` is the path actually opened (the resolved `usb:` selector or the URL;
+`null` until the first successful open). `unstable_port` is `true` when `port`
+is a kernel name such as `/dev/ttyUSB0` that can change between boots.
 
 ### `GET /api/ports`
-Enumerate serial ports available on the host (best effort).
+Enumerate serial adapters attached to the host (best effort; `[]` without
+pyserial or sysfs) with every stable way to address them:
+```json
+{"ports":[{"device":"/dev/ttyUSB0","description":"FT232R USB UART",
+           "manufacturer":"FTDI","product":"FT232R USB UART",
+           "serial_number":"A50285BI","vid":"0403","pid":"6001","location":"1-1.2:1.0",
+           "by_id":["/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0"],
+           "by_path":["/dev/serial/by-path/pci-0000:00:14.0-usb-0:2:1.0-port0"],
+           "selector":"usb:serial=A50285BI"}]}
+```
+`selector` is the suggested `port` value: the serial number if it is unique
+among the attached adapters, else the USB location, else `null` (non-USB ports).
 
 ### `GET /api/sources`
 Every `(meter, obis)` currently available — used by the panel editor.
@@ -58,10 +72,13 @@ Downsampled time series for one source.
 
 ### `POST /api/meters`  → `201`
 Create a meter. Body: `{id, name?, port?, baudrate?, enabled?, verify_crc?, pin?}`.
+A malformed `usb:` selector in `port` is rejected with `400` (`invalid port: …`);
+whether a reader matches is only checked when the port is opened.
 `409` if the id already exists.
 
 ### `PUT /api/meters/{id}`
 Update fields (all optional): `{name?, port?, baudrate?, enabled?, verify_crc?, pin?}`.
+`port` is validated as for create.
 
 ### `DELETE /api/meters/{id}`
 Remove a meter.
@@ -70,6 +87,7 @@ Remove a meter.
 Discovered values plus current mappings.
 ```json
 {"meter":"heating","has_data":true,"state":"reading",
+ "last_error":null,"device":"/dev/ttyUSB1",
  "values":[{"code":"1-0:1.8.0*255","name":"...","value":"73.4512","unit":"kWh",
             "last_seen":1712345678.9,"count":42,"mapped_topic":"power/heating/total","mapped_enabled":true}],
  "mappings":[{"obis":"1-0:1.8.0*255","topic":"power/heating/total","enabled":true}]}
@@ -121,8 +139,8 @@ file as a secret — it contains credentials.
 ### `POST /api/config/import`
 Replace the whole configuration from a YAML (or JSON) body — the same shape as
 `config.yaml`. Applied to the running gateway immediately (meters restart, MQTT
-reconnects, history retention updates) and persisted. Invalid input returns
-`400`. The running session-signing secret is preserved so the current admin is
+reconnects, history retention updates) and persisted. Invalid input (including
+a malformed `usb:` selector in any meter's `port`) returns `400`. The running session-signing secret is preserved so the current admin is
 not logged out by the import.
 
 ```json

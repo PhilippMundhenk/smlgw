@@ -1,0 +1,61 @@
+{#- Detected serial adapters with their stable addresses (issue #1).
+    port_picker(input_id, ports) renders a datalist for the port input, a table
+    of attached readers with "use" buttons, and a hint when the typed port is a
+    kernel name such as /dev/ttyUSB0 that can change between boots. -#}
+{% macro port_picker(input_id, ports) %}
+<datalist id="{{ input_id }}-options">
+  {% for p in ports %}
+    {% if p.selector %}<option value="{{ p.selector }}">{{ p.description }} ({{ p.device }})</option>{% endif %}
+    {% for link in p.by_id %}<option value="{{ link }}">{{ p.device }}</option>{% endfor %}
+    {% for link in p.by_path %}<option value="{{ link }}">{{ p.device }}</option>{% endfor %}
+    <option value="{{ p.device }}">{{ p.description }} (may change between boots)</option>
+  {% endfor %}
+</datalist>
+<p class="port-warn" id="{{ input_id }}-warn" style="display:none">
+  ⚠ Names like <span class="mono">/dev/ttyUSB0</span> are assigned in plug-in order and can swap
+  between readers after a reboot or unplug. Pin the reader instead with
+  <span class="mono">usb:serial=…</span>, <span class="mono">usb:location=…</span> or a
+  <span class="mono">/dev/serial/by-id/…</span> path (pick one below).
+</p>
+<details class="ports" {% if ports %}open{% endif %}>
+  <summary>Detected serial adapters ({{ ports | length }})</summary>
+  {% if ports %}
+  <table class="ports-table">
+    <thead><tr><th>Device</th><th>Adapter</th><th>Serial no.</th><th>USB location</th><th>Stable port</th><th></th></tr></thead>
+    <tbody>
+      {% for p in ports %}
+      {% set stable = p.selector or (p.by_id[0] if p.by_id else (p.by_path[0] if p.by_path else "")) %}
+      <tr>
+        <td class="mono">{{ p.device }}</td>
+        <td>{{ p.description }}{% if p.vid %} <span class="muted mono">{{ p.vid }}:{{ p.pid }}</span>{% endif %}</td>
+        <td class="mono">{{ p.serial_number or "—" }}</td>
+        <td class="mono">{{ p.location or "—" }}</td>
+        <td class="mono">{{ stable or "—" }}</td>
+        <td class="right">
+          {% if stable %}<button type="button" class="small" data-port-target="{{ input_id }}" data-port-value="{{ stable }}">use</button>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No local serial adapters found. Plug in the IR reader (in Docker: pass it with
+    <span class="mono">--device</span>) and reload, or enter a network URL such as
+    <span class="mono">socket://host:5000</span>.</p>
+  {% endif %}
+</details>
+<script>
+(() => {
+  const input = document.getElementById({{ input_id | tojson }});
+  const warn = document.getElementById({{ (input_id ~ "-warn") | tojson }});
+  const unstable = /^\/dev\/tty(USB|ACM|AMA|S|XRUSB)\d+$/;
+  input.setAttribute('list', {{ (input_id ~ "-options") | tojson }});
+  const check = () => { warn.style.display = unstable.test(input.value.trim()) ? '' : 'none'; };
+  input.addEventListener('input', check);
+  check();
+  document.querySelectorAll('button[data-port-target=' + JSON.stringify({{ input_id | tojson }}) + ']').forEach((b) => {
+    b.addEventListener('click', () => { input.value = b.dataset.portValue; check(); input.focus(); });
+  });
+})();
+</script>
+{% endmacro %}
