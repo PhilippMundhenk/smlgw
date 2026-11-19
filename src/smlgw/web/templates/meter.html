@@ -12,10 +12,11 @@
     <label>Enabled</label><input id="m-enabled" type="checkbox" {% if meter.enabled %}checked{% endif %} style="width:auto">
     <label>Opened device</label><span class="mono muted" id="m-device">{{ device or "—" }}</span>
   </div>
-  {% if conflicts %}
-  <p class="port-warn" id="m-conflict">⚠ This meter is configured for the same reader as
-    {% for c in conflicts %}<a href="/meter/{{ c }}">{{ c }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
-    Only one of them can open it; disable one or pick another port.</p>
+  {% if shared_with %}
+  <p class="port-warn" id="m-shared">⇄ This meter shares its reader with
+    {% for c in shared_with %}<a href="/meter/{{ c }}">{{ c }}</a>{% if not loop.last %}, {% endif %}{% endfor %}:
+    they read the port together and each receives the same readings.
+    The port settings (e.g. baud rate) of the meter that opened it first apply.</p>
   {% endif %}
   {{ port_picker("m-port", ports) }}
   <div class="row" style="margin-top:12px">
@@ -76,18 +77,35 @@ async function api(method, url, body) {
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(url, opts);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.detail || r.statusText);
+  if (!r.ok) { const err = new Error(data.detail || r.statusText); err.status = r.status; err.data = data; throw err; }
   return data;
+}
+// Saving a meter onto a reader another meter already uses needs confirmation (#5):
+// the server answers 409 with shared_with; on OK the request is sent again with
+// allow_shared_reader so both meters read the same reader.
+async function saveMeter(method, url, body) {
+  try {
+    return await api(method, url, body);
+  } catch (e) {
+    if (e.status !== 409 || !e.data || !e.data.shared_with) throw e;
+    const others = e.data.shared_with.join(', ');
+    if (!confirm(`The reader is already used by meter ${others}.\n\nBoth meters will receive the same readings ` +
+                 `(e.g. to publish them under two sets of topics). Save anyway?`)) {
+      throw new Error(`Not saved: the reader is already used by meter ${others}.`);
+    }
+    return await api(method, url, { ...body, allow_shared_reader: true });
+  }
 }
 const $ = (id) => document.getElementById(id);
 
 $('save-meter').onclick = async () => {
   try {
-    await api('PUT', `/api/meters/${METER}`, {
+    const res = await saveMeter('PUT', `/api/meters/${METER}`, {
       name: $('m-name').value, port: $('m-port').value,
       baudrate: parseInt($('m-baud').value) || 9600, enabled: $('m-enabled').checked,
     });
-    $('meter-msg').textContent = 'Saved.';
+    const shared = (res && res.shared_with) || [];
+    $('meter-msg').textContent = shared.length ? `Saved. Shares its reader with ${shared.join(', ')}.` : 'Saved.';
   } catch (e) { $('meter-msg').textContent = e.message; }
 };
 $('del-meter').onclick = async () => {

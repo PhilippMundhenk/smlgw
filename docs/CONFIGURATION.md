@@ -211,27 +211,38 @@ configured meters:
 ```
 
 `smlgw ports` exits non-zero if a configured meter's selector matches no reader
-or several, or if two meters share a reader. Meters still using a kernel name
-are marked **⚠ unstable** in the meter list.
+or several, and notes meters that share a reader. Meters still using a kernel
+name are marked **⚠ unstable** in the meter list.
 
-### One reader per meter
+### Several meters on one reader
 
-Two **enabled** meters cannot use the same reader: both would read the one byte
-stream and each get torn halves of the frames. Readers are compared by the
-device they resolve to, so `/dev/ttyUSB0`, its `/dev/serial/by-id/…` symlink and
-a `usb:serial=…` selector for the same adapter count as the same reader (two
-identical `socket://` URLs too). Disabled meters are exempt, so a spare
-configuration for the same reader can be kept.
+Several **enabled** meters can be configured for the same reader, e.g. to
+publish one meter's readings under two sets of topics, with different
+mappings/units, or to keep a test meter next to the production one. Since this
+is more often a mistake (a copied meter, a typo in a selector), it has to be
+confirmed:
 
-- Adding or editing a meter (port or *enabled*) in the UI/API so that it would
-  share a reader is refused (`409`, naming the other meter); importing such a
-  configuration is refused (`400`).
-- A `config.yaml` edited by hand can still contain a conflict. Both meters are
-  then marked **⚠ same reader as …** in the meter list and on the meter page, and
-  `smlgw ports` reports it.
-- At runtime local ports are opened **exclusively** (a lock on Linux/macOS;
-  Windows ports are always exclusive). Only the first meter gets the port; the
-  other one shows `error: /dev/ttyUSB0 is already in use by another meter or
-  program` and keeps retrying. The same applies to other programs:
-  `smlgw bruteforce` for a meter the running service is reading fails with this
-  message, so stop the service or use the PIN tools in the web UI instead.
+- Adding or editing a meter (port or *enabled*) in the UI so that it uses a
+  reader another enabled meter already uses shows a warning naming that meter;
+  **OK** saves it anyway. Over the API the request returns `409` with
+  `shared_with` until it is repeated with `"allow_shared_reader": true`.
+- Importing a configuration with shared readers is not refused; the response
+  lists them under `warnings`.
+- Meters sharing a reader are marked **⇄ shares reader with …** in the meter
+  list and on the meter page, and `smlgw ports` notes them.
+
+Readers are compared by the device they resolve to, so `/dev/ttyUSB0`, its
+`/dev/serial/by-id/…` symlink and a `usb:serial=…` selector for the same adapter
+count as the same reader (two identical `socket://` URLs too). Disabled meters
+are ignored, so a spare configuration never needs confirming.
+
+At runtime the meters on one reader **share a single open port**: it is opened
+once and every chunk read from it is handed to each of them, so each decodes
+every frame completely. The port settings (baud rate) of the meter that opened
+it first apply; give all meters on one reader the same baud rate. PIN entry on
+one of them works while the others keep reading.
+
+Local ports are opened **exclusively** against *other programs* (a lock on
+Linux/macOS; Windows ports are always exclusive): `smlgw bruteforce` for a
+reader the running service uses fails with `… is already in use by another
+meter or program`, so stop the service or use the PIN tools in the web UI.

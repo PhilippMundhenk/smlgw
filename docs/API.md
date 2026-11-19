@@ -18,7 +18,7 @@ Per-meter runtime state and MQTT connectivity.
 {
   "meters": [
     {"id":"heating","name":"Heating","port":"usb:serial=A50285BI",
-     "device":"/dev/ttyUSB1","unstable_port":false,"conflicts":[],"enabled":true,"running":true,"state":"reading","last_error":null,"server_id":"0a...",
+     "device":"/dev/ttyUSB1","unstable_port":false,"shared_with":[],"enabled":true,"running":true,"state":"reading","last_error":null,"server_id":"0a...",
      "discovered_count":7,"last_seen":1712345678.9,"has_data":true}
   ],
   "mqtt": {"connected": true}
@@ -28,9 +28,9 @@ Per-meter runtime state and MQTT connectivity.
 `device` is the path actually opened (the resolved `usb:` selector or the URL;
 `null` until the first successful open). `unstable_port` is `true` when `port`
 is a kernel name such as `/dev/ttyUSB0` that can change between boots.
-`conflicts` lists the ids of other enabled meters configured for the same reader
-(only possible in a hand-edited config; see
-[One reader per meter](CONFIGURATION.md#one-reader-per-meter)).
+`shared_with` lists the ids of other enabled meters configured for the same
+reader; they share one open port (see
+[Several meters on one reader](CONFIGURATION.md#several-meters-on-one-reader)).
 
 ### `GET /api/ports`
 Enumerate serial adapters attached to the host (best effort; `[]` without
@@ -74,16 +74,20 @@ Downsampled time series for one source.
 ## Meters
 
 ### `POST /api/meters`  → `201`
-Create a meter. Body: `{id, name?, port?, baudrate?, enabled?, verify_crc?, pin?}`.
+Create a meter. Body: `{id, name?, port?, baudrate?, enabled?, verify_crc?, pin?, allow_shared_reader?}`.
+Response: `{"ok":true,"meter":"<id>","shared_with":[…]}`.
 A malformed `usb:` selector in `port` is rejected with `400` (`invalid port: …`);
 whether a reader matches is only checked when the port is opened.
-`409` if the meter would use the same reader as another enabled meter.
 `409` if the id already exists.
+`409` with `{"detail": "…", "shared_with": ["heating"]}` if the meter would use
+the same reader as another enabled meter; repeat the request with
+`"allow_shared_reader": true` to save it anyway.
 
 ### `PUT /api/meters/{id}`
-Update fields (all optional): `{name?, port?, baudrate?, enabled?, verify_crc?, pin?}`.
+Update fields (all optional): `{name?, port?, baudrate?, enabled?, verify_crc?, pin?, allow_shared_reader?}`.
 `port` is validated as for create. Changing `port` or `enabled` so that the
-meter shares a reader with another enabled meter returns `409`.
+meter uses the reader of another enabled meter returns the same `409` as create
+unless `allow_shared_reader` is `true`. Response: `{"ok":true,"shared_with":[…]}`.
 
 ### `DELETE /api/meters/{id}`
 Remove a meter.
@@ -145,12 +149,12 @@ file as a secret — it contains credentials.
 Replace the whole configuration from a YAML (or JSON) body — the same shape as
 `config.yaml`. Applied to the running gateway immediately (meters restart, MQTT
 reconnects, history retention updates) and persisted. Invalid input (including
-a malformed `usb:` selector in any meter's `port`, or two enabled meters on the
-same reader) returns `400`. The running session-signing secret is preserved so the current admin is
+a malformed `usb:` selector in any meter's `port`) returns `400`. Meters sharing
+a reader are allowed and listed in the response's `warnings`. The running session-signing secret is preserved so the current admin is
 not logged out by the import.
 
 ```json
-{"ok": true, "meters": 2, "panels": 1}
+{"ok": true, "meters": 2, "panels": 1, "warnings": []}
 ```
 
 ---

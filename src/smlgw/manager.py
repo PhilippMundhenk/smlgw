@@ -18,12 +18,12 @@ from dataclasses import dataclass
 from typing import Callable, Iterator
 
 from .config import AppConfig, MeterConfig
-from .devices import find_conflicts, is_unstable_path
+from .devices import find_shared_readers, is_unstable_path, reader_key
 from .obis import obis_name
 from .publisher import Publisher
 from .reader import MeterReader
 from .sml import SmlGetListResult
-from .transport import SerialTransport, Transport
+from .transport import ReaderHub, SerialTransport, SharedPort, Transport
 
 log = logging.getLogger(__name__)
 
@@ -229,9 +229,38 @@ class MeterManager:
                 if meter.enabled:
                     self._start_worker(meter)
 
+    def _port_for(self, meter: MeterConfig) -> Transport:
+        """A transport for *meter*, shared with running meters on the same reader.
+
+        A meter whose port resolves to the reader another *running* meter uses
+        attaches to that meter's :class:`ReaderHub` and receives a copy of
+        every byte (#5); the first meter's transport (and baud rate) is used.
+        Otherwise a fresh transport is created, so a restarted meter picks up
+        a changed port or baud rate instead of reusing a stale one.
+        """
+        try:
+            key = reader_key(meter.port)
+        except Exception:  # noqa: BLE001 - enumeration trouble: just don't share
+            key = None
+        if key is not None:
+            for other in list(self._workers.values()):
+                if (
+                    other.config.id != meter.id
+                    and isinstance(other.transport, SharedPort)
+                    and getattr(other, "reader_key", None) == key
+                ):
+                    return self._tag(other.transport.hub.port(), key)
+        return self._tag(ReaderHub(self.transport_factory(meter)).port(), key)
+
+    @staticmethod
+    def _tag(port: SharedPort, key) -> SharedPort:
+        port.reader_key = key
+        return port
+
     def _start_worker(self, meter: MeterConfig) -> MeterWorker:
-        transport = self.transport_factory(meter)
+        transport = self._port_for(meter)
         worker = MeterWorker(self, meter, transport)
+        worker.reader_key = getattr(transport, "reader_key", None)
         self._workers[meter.id] = worker
         worker.start()
         log.info("started meter worker %s (%s)", meter.id, meter.port)
@@ -277,10 +306,10 @@ class MeterManager:
     def status(self) -> list[dict]:
         result = []
         try:
-            conflicts = find_conflicts(self.config.meters)
+            shared = find_shared_readers(self.config.meters)
         except Exception:  # status must never fail on a detection problem
-            log.exception("reader conflict detection failed")
-            conflicts = {}
+            log.exception("shared reader detection failed")
+            shared = {}
         for meter in self.config.meters:
             worker = self._workers.get(meter.id)
             if worker is not None:
@@ -301,8 +330,8 @@ class MeterManager:
                     "last_seen": None,
                     "has_data": False,
                 }
-            # Other enabled meters configured for the same reader (see #3).
-            entry["conflicts"] = conflicts.get(meter.id, [])
+            # Other enabled meters on the same reader; they share one port (#5).
+            entry["shared_with"] = shared.get(meter.id, [])
             result.append(entry)
         return result
 
@@ -331,7 +360,7 @@ class MeterManager:
         was_running = worker is not None and worker.running
         if worker is not None:
             worker.stop()
-        transport = worker.transport if worker is not None else self.transport_factory(meter)
+        transport = worker.transport if worker is not None else self._port_for(meter)
         try:
             if not transport.is_open:
                 transport.open()
