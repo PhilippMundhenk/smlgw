@@ -75,7 +75,8 @@ def test_api_ports_empty_without_enumeration(tmp_path, monkeypatch):
 
 
 def test_create_and_update_meter_with_selector_persists(tmp_path, monkeypatch):
-    client, manager, path = make_env(tmp_path, monkeypatch)
+    other = [MeterConfig(id="m", port="/dev/ttyUSB7")]  # not one of the two readers
+    client, manager, path = make_env(tmp_path, monkeypatch, meters=other)
     try:
         r = client.post(
             "/api/meters", json={"id": "heat", "port": "  usb:serial=A50285BI "}

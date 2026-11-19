@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Callable, Iterator
 
 from .config import AppConfig, MeterConfig
-from .devices import is_unstable_path
+from .devices import find_conflicts, is_unstable_path
 from .obis import obis_name
 from .publisher import Publisher
 from .reader import MeterReader
@@ -276,28 +276,34 @@ class MeterManager:
 
     def status(self) -> list[dict]:
         result = []
+        try:
+            conflicts = find_conflicts(self.config.meters)
+        except Exception:  # status must never fail on a detection problem
+            log.exception("reader conflict detection failed")
+            conflicts = {}
         for meter in self.config.meters:
             worker = self._workers.get(meter.id)
             if worker is not None:
-                result.append(worker.status())
+                entry = worker.status()
             else:
-                result.append(
-                    {
-                        "id": meter.id,
-                        "name": meter.name,
-                        "port": meter.port,
-                        "device": None,
-                        "unstable_port": is_unstable_path(meter.port),
-                        "enabled": meter.enabled,
-                        "running": False,
-                        "state": "stopped",
-                        "last_error": None,
-                        "server_id": None,
-                        "discovered_count": 0,
-                        "last_seen": None,
-                        "has_data": False,
-                    }
-                )
+                entry = {
+                    "id": meter.id,
+                    "name": meter.name,
+                    "port": meter.port,
+                    "device": None,
+                    "unstable_port": is_unstable_path(meter.port),
+                    "enabled": meter.enabled,
+                    "running": False,
+                    "state": "stopped",
+                    "last_error": None,
+                    "server_id": None,
+                    "discovered_count": 0,
+                    "last_seen": None,
+                    "has_data": False,
+                }
+            # Other enabled meters configured for the same reader (see #3).
+            entry["conflicts"] = conflicts.get(meter.id, [])
+            result.append(entry)
         return result
 
     def discovered(self, meter_id: str) -> list[DiscoveredValue]:

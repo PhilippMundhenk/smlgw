@@ -11,7 +11,7 @@
       {% for m in status %}
       <tr data-id="{{ m.id }}">
         <td><a href="/meter/{{ m.id }}">{{ m.name }}</a></td>
-        <td class="mono">{{ m.port or "—" }}{% if m.device and m.device != m.port %} <span class="muted">→ {{ m.device }}</span>{% endif %}{% if m.unstable_port %} <span class="port-flag" title="This kernel name can change between boots; pin the reader by serial number or USB location">⚠ unstable</span>{% endif %}</td>
+        <td class="mono">{{ m.port or "—" }}{% if m.device and m.device != m.port %} <span class="muted">→ {{ m.device }}</span>{% endif %}{% if m.conflicts %} <span class="port-flag" title="Two meters cannot read one reader: only one of them gets the port">⚠ same reader as {{ m.conflicts | join(", ") }}</span>{% endif %}{% if m.unstable_port %} <span class="port-flag" title="This kernel name can change between boots; pin the reader by serial number or USB location">⚠ unstable</span>{% endif %}</td>
         <td><span class="badge {{ m.state }}">{{ m.state }}</span></td>
         <td class="right count">{{ m.discovered_count }}</td>
         <td class="right"><a href="/meter/{{ m.id }}">configure →</a></td>

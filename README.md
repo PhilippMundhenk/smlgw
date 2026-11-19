@@ -26,7 +26,8 @@ as the legacy gateway), stores them as **time series**, and ships a
   and `/dev/ttyUSB1` can swap after a reboot or replug. A meter's port can name
   the *reader* instead (`usb:serial=A50285BI`, `usb:location=1-1.2`, or a
   `/dev/serial/by-id/…` path), re-resolved on every reconnect; the UI and
-  `smlgw ports` list the attached readers with the value to use.
+  `smlgw ports` list the attached readers with the value to use. Two meters can
+  never be set to the same reader, and ports are opened exclusively.
 - **Auto-discovery.** Whatever a meter transmits (e.g. a new `2.8.0` export
   register) appears in the UI, ready to be mapped to MQTT and plotted.
 - **Settings page.** Central management of meters, the MQTT broker, history
@@ -311,6 +312,9 @@ Headless equivalent of the old `pin.sh`:
 ```bash
 smlgw bruteforce heating          # meter id from the config
 ```
+
+Stop the service first (or use the web UI's PIN tools): the port is opened
+exclusively, so it fails with "already in use" while the service reads it.
 
 > A **recovery** tool for the meter's rightful owner, who by law has the right to
 > their meter's data and the physical access to the optical port that operating

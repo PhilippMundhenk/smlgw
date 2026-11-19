@@ -215,3 +215,56 @@ def list_devices(
             }
         )
     return result
+
+
+def reader_key(port: str, ports: list | None = None) -> tuple | None:
+    """Identify the physical reader *port* refers to, for duplicate detection.
+
+    Two ports with the same key are the same reader: a ``usb:`` selector, a
+    ``/dev/serial/by-id`` symlink and the ``/dev/ttyUSB*`` name of one adapter
+    all resolve to the same device.  A selector that matches nothing right now
+    (reader unplugged) is compared by its parsed criteria instead.  Empty ports
+    return ``None`` and never conflict.
+    """
+    port = (port or "").strip()
+    if not port:
+        return None
+    if "://" in port:
+        return ("url", port.lower())
+    if is_selector(port):
+        try:
+            criteria = parse_selector(port)
+        except DeviceSelectorError:
+            return ("raw", port)
+        try:
+            return ("dev", os.path.realpath(resolve_port(port, ports)))
+        except DeviceSelectorError:
+            return ("selector", tuple(sorted(criteria.items())))
+    return ("dev", os.path.realpath(port))
+
+
+def find_conflicts(meters, ports: list | None = None) -> dict[str, list[str]]:
+    """Map meter id -> ids of other *enabled* meters using the same reader.
+
+    *meters* are objects with ``id``, ``port`` and ``enabled``.  Disabled
+    meters never conflict (they keep a spare configuration, nothing opens it).
+    Adapters are enumerated once (*ports* defaults to the attached ones) so
+    selectors and paths are compared against the same snapshot.
+    """
+    enabled = [m for m in meters if m.enabled]
+    if ports is None and any(is_selector(m.port or "") for m in enabled):
+        try:
+            ports = _comports()
+        except Exception:  # noqa: BLE001 - no pyserial/sysfs: compare criteria only
+            ports = []
+    groups: dict[tuple, list[str]] = {}
+    for meter in enabled:
+        key = reader_key(meter.port, ports or [])
+        if key is not None:
+            groups.setdefault(key, []).append(meter.id)
+    conflicts: dict[str, list[str]] = {}
+    for ids in groups.values():
+        if len(ids) > 1:
+            for meter_id in ids:
+                conflicts[meter_id] = [other for other in ids if other != meter_id]
+    return conflicts

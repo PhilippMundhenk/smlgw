@@ -12,6 +12,11 @@
     <label>Enabled</label><input id="m-enabled" type="checkbox" {% if meter.enabled %}checked{% endif %} style="width:auto">
     <label>Opened device</label><span class="mono muted" id="m-device">{{ device or "—" }}</span>
   </div>
+  {% if conflicts %}
+  <p class="port-warn" id="m-conflict">⚠ This meter is configured for the same reader as
+    {% for c in conflicts %}<a href="/meter/{{ c }}">{{ c }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
+    Only one of them can open it; disable one or pick another port.</p>
+  {% endif %}
   {{ port_picker("m-port", ports) }}
   <div class="row" style="margin-top:12px">
     <button id="save-meter">Save settings</button>
