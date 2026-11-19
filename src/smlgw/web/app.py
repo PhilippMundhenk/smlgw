@@ -48,7 +48,7 @@ from ..config import (
     Series,
     save_config,
 )
-from ..devices import DeviceSelectorError, find_conflicts, list_devices, validate_port
+from ..devices import DeviceSelectorError, find_shared_readers, list_devices, validate_port
 from ..manager import MeterManager
 from ..obis import obis_name
 from .jobs import PinJobManager
@@ -111,16 +111,33 @@ def list_serial_ports() -> list:
         return []
 
 
-def _reject_shared_reader(cfg: AppConfig, meter_id: str) -> None:
-    """409 if *meter_id* uses the same reader as another enabled meter in *cfg*."""
-    others = find_conflicts(cfg.meters).get(meter_id)
-    if others:
-        names = ", ".join(repr(o) for o in others)
-        raise HTTPException(
+class SharedReaderWarning(HTTPException):
+    """409 asking the client to confirm that a meter shares a reader (#5)."""
+
+    def __init__(self, meter_id: str, shared_with: list[str]) -> None:
+        names = ", ".join(repr(o) for o in shared_with)
+        super().__init__(
             status_code=409,
-            detail=f"meter {meter_id!r} would use the same reader as meter {names}; "
-            "two meters cannot read one reader (disable one, or pick another port)",
+            detail=f"meter {meter_id!r} would use the same reader as meter {names}. "
+            "Both meters will then receive the same readings. "
+            "Send allow_shared_reader: true to save anyway.",
         )
+        self.shared_with = shared_with
+
+
+def _confirm_shared_reader(
+    old_cfg: AppConfig, new_cfg: AppConfig, meter_id: str, body: dict
+) -> None:
+    """Warn (409) if the change makes *meter_id* share a reader with a meter it
+    did not share with before, unless the client opted in.
+
+    Saving a meter that already shares its reader (the meter page always sends
+    the port) does not ask again.
+    """
+    others = find_shared_readers(new_cfg.meters).get(meter_id, [])
+    before = set(find_shared_readers(old_cfg.meters).get(meter_id, []))
+    if [o for o in others if o not in before] and body.get("allow_shared_reader") is not True:
+        raise SharedReaderWarning(meter_id, others)
 
 
 def _port_arg(value) -> str:
@@ -210,7 +227,7 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
                 "meter": meter,
                 "ports": list_serial_ports(),
                 "device": device,
-                "conflicts": find_conflicts(manager.config.meters).get(meter.id, []),
+                "shared_with": find_shared_readers(manager.config.meters).get(meter.id, []),
             },
         )
 
@@ -297,11 +314,14 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
                 pin=body.get("pin") or None,
             )
             new_cfg = cfg.with_meter(meter)
-            _reject_shared_reader(new_cfg, meter_id)
+            _confirm_shared_reader(cfg, new_cfg, meter_id, body)
             return new_cfg
 
-        mutate(build)
-        return JSONResponse({"ok": True, "meter": meter_id}, status_code=201)
+        new_cfg = mutate(build)
+        shared = find_shared_readers(new_cfg.meters).get(meter_id, [])
+        return JSONResponse(
+            {"ok": True, "meter": meter_id, "shared_with": shared}, status_code=201
+        )
 
     async def api_update_meter(request: Request):
         meter_id = request.path_params["meter_id"]
@@ -321,14 +341,15 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
                 pin=body["pin"] if "pin" in body else meter.pin,
             )
             new_cfg = cfg.with_meter(updated)
-            # Only a change of port/enabled can create a conflict; a renamed meter
-            # in an already conflicting (hand-edited) config must stay editable.
+            # Only a change of port/enabled can newly share a reader; renaming a
+            # meter that already shares one needs no confirmation.
             if "port" in body or "enabled" in body:
-                _reject_shared_reader(new_cfg, meter_id)
+                _confirm_shared_reader(cfg, new_cfg, meter_id, body)
             return new_cfg
 
-        mutate(build)
-        return JSONResponse({"ok": True})
+        new_cfg = mutate(build)
+        shared = find_shared_readers(new_cfg.meters).get(meter_id, [])
+        return JSONResponse({"ok": True, "shared_with": shared})
 
     def api_delete_meter(request: Request):
         meter_id = request.path_params["meter_id"]
@@ -489,13 +510,6 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
                     validate_port(meter.port)
                 except DeviceSelectorError as exc:
                     raise ValueError(f"meter {meter.id!r}: {exc}") from None
-            shared = find_conflicts(new_config.meters)
-            if shared:
-                first = sorted(shared)[0]
-                raise ValueError(
-                    f"meters {first!r} and {shared[first][0]!r} use the same reader; "
-                    "disable one or give it another port"
-                )
         except Exception as exc:  # noqa: BLE001 - surfaced to the user
             raise HTTPException(status_code=400, detail=f"invalid configuration: {exc}")
         current_secret = manager.config.auth.secret
@@ -510,7 +524,20 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
                 retention_hours=new_config.history.retention_hours,
                 sample_interval=new_config.history.sample_interval,
             )
-        return JSONResponse({"ok": True, "meters": len(new_config.meters), "panels": len(new_config.dashboard.panels)})
+        # Shared readers are allowed (#5); report them so the user notices.
+        shared = find_shared_readers(new_config.meters)
+        warnings = [
+            f"meter {meter_id!r} shares its reader with {', '.join(repr(o) for o in shared[meter_id])}"
+            for meter_id in sorted(shared)
+        ]
+        return JSONResponse(
+            {
+                "ok": True,
+                "meters": len(new_config.meters),
+                "panels": len(new_config.dashboard.panels),
+                "warnings": warnings,
+            }
+        )
 
     # ---- dashboard ---------------------------------------------------- #
     def api_get_dashboard(request: Request):
@@ -575,7 +602,10 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
         return JSONResponse({"ok": jobs.cancel(meter_id)})
 
     async def on_http_exception(request: Request, exc: HTTPException):
-        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        payload = {"detail": exc.detail}
+        if isinstance(exc, SharedReaderWarning):
+            payload["shared_with"] = exc.shared_with
+        return JSONResponse(payload, status_code=exc.status_code)
 
     routes = [
         Route("/", dashboard),

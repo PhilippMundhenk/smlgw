@@ -145,7 +145,7 @@ def cmd_bruteforce(args: argparse.Namespace) -> int:
 
 def cmd_ports(args: argparse.Namespace) -> int:
     """Print attached serial adapters and the stable ``port`` value for each."""
-    from .devices import find_conflicts, list_devices, resolve_port
+    from .devices import find_shared_readers, list_devices, resolve_port
 
     devices = list_devices()
     if not devices:
@@ -170,11 +170,10 @@ def cmd_ports(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 - reported, not fatal
             note, status = f"ERROR: {exc}", 1
         print(f"  {meter.id}: {meter.port or '-'} {note}".rstrip())
-    shared = find_conflicts(config.meters)
+    shared = find_shared_readers(config.meters)
     for meter_id in sorted(shared):
         others = ", ".join(shared[meter_id])
-        print(f"ERROR: meter {meter_id} uses the same reader as {others}")
-        status = 1
+        print(f"note: meter {meter_id} shares its reader with {others} (same readings)")
     return status
 
 

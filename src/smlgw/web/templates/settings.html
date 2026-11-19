@@ -11,7 +11,7 @@
       {% for m in status %}
       <tr data-id="{{ m.id }}">
         <td><a href="/meter/{{ m.id }}">{{ m.name }}</a></td>
-        <td class="mono">{{ m.port or "—" }}{% if m.device and m.device != m.port %} <span class="muted">→ {{ m.device }}</span>{% endif %}{% if m.conflicts %} <span class="port-flag" title="Two meters cannot read one reader: only one of them gets the port">⚠ same reader as {{ m.conflicts | join(", ") }}</span>{% endif %}{% if m.unstable_port %} <span class="port-flag" title="This kernel name can change between boots; pin the reader by serial number or USB location">⚠ unstable</span>{% endif %}</td>
+        <td class="mono">{{ m.port or "—" }}{% if m.device and m.device != m.port %} <span class="muted">→ {{ m.device }}</span>{% endif %}{% if m.shared_with %} <span class="port-flag shared" title="These meters share one reader and receive the same readings">⇄ shares reader with {{ m.shared_with | join(", ") }}</span>{% endif %}{% if m.unstable_port %} <span class="port-flag" title="This kernel name can change between boots; pin the reader by serial number or USB location">⚠ unstable</span>{% endif %}</td>
         <td><span class="badge {{ m.state }}">{{ m.state }}</span></td>
         <td class="right count">{{ m.discovered_count }}</td>
         <td class="right"><a href="/meter/{{ m.id }}">configure →</a></td>
@@ -89,8 +89,24 @@ async function api(method, url, body) {
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(url, opts);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.detail || r.statusText);
+  if (!r.ok) { const err = new Error(data.detail || r.statusText); err.status = r.status; err.data = data; throw err; }
   return data;
+}
+// Saving a meter onto a reader another meter already uses needs confirmation (#5):
+// the server answers 409 with shared_with; on OK the request is sent again with
+// allow_shared_reader so both meters read the same reader.
+async function saveMeter(method, url, body) {
+  try {
+    return await api(method, url, body);
+  } catch (e) {
+    if (e.status !== 409 || !e.data || !e.data.shared_with) throw e;
+    const others = e.data.shared_with.join(', ');
+    if (!confirm(`The reader is already used by meter ${others}.\n\nBoth meters will receive the same readings ` +
+                 `(e.g. to publish them under two sets of topics). Save anyway?`)) {
+      throw new Error(`Not saved: the reader is already used by meter ${others}.`);
+    }
+    return await api(method, url, { ...body, allow_shared_reader: true });
+  }
 }
 const $ = (id) => document.getElementById(id);
 
@@ -98,7 +114,7 @@ $('add').onclick = async () => {
   const id = $('f-id').value.trim();
   if (!id) { $('add-msg').textContent = 'ID required'; return; }
   try {
-    await api('POST', '/api/meters', { id, name: $('f-name').value.trim(), port: $('f-port').value.trim(), baudrate: parseInt($('f-baud').value) || 9600 });
+    await saveMeter('POST', '/api/meters', { id, name: $('f-name').value.trim(), port: $('f-port').value.trim(), baudrate: parseInt($('f-baud').value) || 9600 });
     location.href = '/meter/' + encodeURIComponent(id);
   } catch (e) { $('add-msg').textContent = e.message; }
 };
