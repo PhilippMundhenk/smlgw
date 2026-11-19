@@ -18,7 +18,7 @@ Per-meter runtime state and MQTT connectivity.
 {
   "meters": [
     {"id":"heating","name":"Heating","port":"usb:serial=A50285BI",
-     "device":"/dev/ttyUSB1","unstable_port":false,"enabled":true,"running":true,"state":"reading","last_error":null,"server_id":"0a...",
+     "device":"/dev/ttyUSB1","unstable_port":false,"conflicts":[],"enabled":true,"running":true,"state":"reading","last_error":null,"server_id":"0a...",
      "discovered_count":7,"last_seen":1712345678.9,"has_data":true}
   ],
   "mqtt": {"connected": true}
@@ -28,6 +28,9 @@ Per-meter runtime state and MQTT connectivity.
 `device` is the path actually opened (the resolved `usb:` selector or the URL;
 `null` until the first successful open). `unstable_port` is `true` when `port`
 is a kernel name such as `/dev/ttyUSB0` that can change between boots.
+`conflicts` lists the ids of other enabled meters configured for the same reader
+(only possible in a hand-edited config; see
+[One reader per meter](CONFIGURATION.md#one-reader-per-meter)).
 
 ### `GET /api/ports`
 Enumerate serial adapters attached to the host (best effort; `[]` without
@@ -74,11 +77,13 @@ Downsampled time series for one source.
 Create a meter. Body: `{id, name?, port?, baudrate?, enabled?, verify_crc?, pin?}`.
 A malformed `usb:` selector in `port` is rejected with `400` (`invalid port: …`);
 whether a reader matches is only checked when the port is opened.
+`409` if the meter would use the same reader as another enabled meter.
 `409` if the id already exists.
 
 ### `PUT /api/meters/{id}`
 Update fields (all optional): `{name?, port?, baudrate?, enabled?, verify_crc?, pin?}`.
-`port` is validated as for create.
+`port` is validated as for create. Changing `port` or `enabled` so that the
+meter shares a reader with another enabled meter returns `409`.
 
 ### `DELETE /api/meters/{id}`
 Remove a meter.
@@ -140,7 +145,8 @@ file as a secret — it contains credentials.
 Replace the whole configuration from a YAML (or JSON) body — the same shape as
 `config.yaml`. Applied to the running gateway immediately (meters restart, MQTT
 reconnects, history retention updates) and persisted. Invalid input (including
-a malformed `usb:` selector in any meter's `port`) returns `400`. The running session-signing secret is preserved so the current admin is
+a malformed `usb:` selector in any meter's `port`, or two enabled meters on the
+same reader) returns `400`. The running session-signing secret is preserved so the current admin is
 not logged out by the import.
 
 ```json

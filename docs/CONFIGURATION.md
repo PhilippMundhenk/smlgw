@@ -211,5 +211,27 @@ configured meters:
 ```
 
 `smlgw ports` exits non-zero if a configured meter's selector matches no reader
-or several. Meters still using a kernel name are marked **⚠ unstable** in the
-meter list.
+or several, or if two meters share a reader. Meters still using a kernel name
+are marked **⚠ unstable** in the meter list.
+
+### One reader per meter
+
+Two **enabled** meters cannot use the same reader: both would read the one byte
+stream and each get torn halves of the frames. Readers are compared by the
+device they resolve to, so `/dev/ttyUSB0`, its `/dev/serial/by-id/…` symlink and
+a `usb:serial=…` selector for the same adapter count as the same reader (two
+identical `socket://` URLs too). Disabled meters are exempt, so a spare
+configuration for the same reader can be kept.
+
+- Adding or editing a meter (port or *enabled*) in the UI/API so that it would
+  share a reader is refused (`409`, naming the other meter); importing such a
+  configuration is refused (`400`).
+- A `config.yaml` edited by hand can still contain a conflict. Both meters are
+  then marked **⚠ same reader as …** in the meter list and on the meter page, and
+  `smlgw ports` reports it.
+- At runtime local ports are opened **exclusively** (a lock on Linux/macOS;
+  Windows ports are always exclusive). Only the first meter gets the port; the
+  other one shows `error: /dev/ttyUSB0 is already in use by another meter or
+  program` and keeps retrying. The same applies to other programs:
+  `smlgw bruteforce` for a meter the running service is reading fails with this
+  message, so stop the service or use the PIN tools in the web UI instead.

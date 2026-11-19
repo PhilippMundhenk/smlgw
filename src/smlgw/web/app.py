@@ -48,7 +48,7 @@ from ..config import (
     Series,
     save_config,
 )
-from ..devices import DeviceSelectorError, list_devices, validate_port
+from ..devices import DeviceSelectorError, find_conflicts, list_devices, validate_port
 from ..manager import MeterManager
 from ..obis import obis_name
 from .jobs import PinJobManager
@@ -109,6 +109,18 @@ def list_serial_ports() -> list:
         return list_devices()
     except Exception:
         return []
+
+
+def _reject_shared_reader(cfg: AppConfig, meter_id: str) -> None:
+    """409 if *meter_id* uses the same reader as another enabled meter in *cfg*."""
+    others = find_conflicts(cfg.meters).get(meter_id)
+    if others:
+        names = ", ".join(repr(o) for o in others)
+        raise HTTPException(
+            status_code=409,
+            detail=f"meter {meter_id!r} would use the same reader as meter {names}; "
+            "two meters cannot read one reader (disable one, or pick another port)",
+        )
 
 
 def _port_arg(value) -> str:
@@ -194,7 +206,12 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
         return templates.TemplateResponse(
             request,
             "meter.html",
-            {"meter": meter, "ports": list_serial_ports(), "device": device},
+            {
+                "meter": meter,
+                "ports": list_serial_ports(),
+                "device": device,
+                "conflicts": find_conflicts(manager.config.meters).get(meter.id, []),
+            },
         )
 
     def login_view(request: Request):
@@ -279,7 +296,9 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
                 verify_crc=_as_bool(body.get("verify_crc"), False),
                 pin=body.get("pin") or None,
             )
-            return cfg.with_meter(meter)
+            new_cfg = cfg.with_meter(meter)
+            _reject_shared_reader(new_cfg, meter_id)
+            return new_cfg
 
         mutate(build)
         return JSONResponse({"ok": True, "meter": meter_id}, status_code=201)
@@ -301,7 +320,12 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
                 verify_crc=_as_bool(body["verify_crc"], meter.verify_crc) if "verify_crc" in body else meter.verify_crc,
                 pin=body["pin"] if "pin" in body else meter.pin,
             )
-            return cfg.with_meter(updated)
+            new_cfg = cfg.with_meter(updated)
+            # Only a change of port/enabled can create a conflict; a renamed meter
+            # in an already conflicting (hand-edited) config must stay editable.
+            if "port" in body or "enabled" in body:
+                _reject_shared_reader(new_cfg, meter_id)
+            return new_cfg
 
         mutate(build)
         return JSONResponse({"ok": True})
@@ -465,6 +489,13 @@ def create_app(manager: MeterManager, config_path: str) -> Starlette:
                     validate_port(meter.port)
                 except DeviceSelectorError as exc:
                     raise ValueError(f"meter {meter.id!r}: {exc}") from None
+            shared = find_conflicts(new_config.meters)
+            if shared:
+                first = sorted(shared)[0]
+                raise ValueError(
+                    f"meters {first!r} and {shared[first][0]!r} use the same reader; "
+                    "disable one or give it another port"
+                )
         except Exception as exc:  # noqa: BLE001 - surfaced to the user
             raise HTTPException(status_code=400, detail=f"invalid configuration: {exc}")
         current_secret = manager.config.auth.secret

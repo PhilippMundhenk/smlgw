@@ -77,14 +77,25 @@ class SerialTransport:
             from .devices import resolve_port
 
             device = resolve_port(self.port)
-            self._serial = serial.Serial(
-                port=device,
-                baudrate=self.baudrate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=self.timeout,
-            )
+            try:
+                # exclusive: take a flock on POSIX so a second meter (or a
+                # `smlgw bruteforce` next to the service) cannot read the same
+                # reader and tear its frames; Windows ports are exclusive anyway.
+                self._serial = serial.Serial(
+                    port=device,
+                    baudrate=self.baudrate,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    timeout=self.timeout,
+                    exclusive=True,
+                )
+            except serial.SerialException as exc:
+                if "exclusively lock" in str(exc):
+                    raise serial.SerialException(
+                        f"{device} is already in use by another meter or program"
+                    ) from exc
+                raise
             self.device = device
 
     def read(self, size: int) -> bytes:
